@@ -129,17 +129,23 @@ class MLRiskEngine:
         
         # Re-initialize the SHAP explainer instantly from the loaded tree
         self.explainer = shap.TreeExplainer(self.model)
-        # print("Production model loaded into memory.")
 
     def evaluate_borrower(self, borrower_features: pd.DataFrame):
         """The production function. Runs instantly using the loaded model."""
         if self.explainer is None:
              self.load_production_model()
+        
+        aligned_features = pd.DataFrame(index=borrower_features.index, columns=self.feature_names)
 
-        # Ensure the incoming data matches the exact columns the model was trained on
-        borrower_features = borrower_features[self.feature_names]
+        for col in self.feature_names:
+            if col in borrower_features.columns:
+                aligned_features[col] = borrower_features[col].values
+            else:
+                aligned_features[col] = 0
 
-        # 1. Get Mathematical Prediction (Lightning Fast)
+        borrower_features = aligned_features[self.feature_names]
+
+        # 1. Get Mathematical Prediction
         risk_probability = float(self.model.predict_proba(borrower_features)[0][1])
         
         # 2. Get Explainability Signals (SHAP)
@@ -175,10 +181,8 @@ if __name__ == "__main__":
     IS_TRAINING_DAY = False 
     
     if IS_TRAINING_DAY:
-        # A CRON job or MLOps pipeline runs this once a month
         engine.train_and_save_model(TRAINING_DATASET_PATH)
     else:
-        # The Live API runs this every time a new application is submitted
         print("--- REAL-TIME API INFERENCE ---")
         
         try:
@@ -189,13 +193,10 @@ if __name__ == "__main__":
             print(f"Ingesting actual applicant features from {NEW_APPLICATION_PATH}...")
             incoming_data = pd.read_csv(NEW_APPLICATION_PATH)
             
-            # Assuming we are evaluating one applicant at a time (the first row)
             applicant_data = incoming_data.iloc[[0]] 
             
-            # 2. The model loads from disk (if not already in memory) and predicts instantly
             risk_score, explanation = engine.evaluate_borrower(applicant_data)
             
-            # 3. Output results to be passed to Phase 3 (The Orchestrator)
             print(f"\nPredicted NPA Risk: {risk_score * 100:.2f}%")
             print("AI Feedback Signals:")
             print(explanation)
