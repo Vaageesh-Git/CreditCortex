@@ -1,3 +1,5 @@
+import os
+import io
 import pandas as pd
 from unstructured.partition.pdf import partition_pdf
 from presidio_analyzer import AnalyzerEngine
@@ -6,51 +8,68 @@ from presidio_anonymizer import AnonymizerEngine
 class CognitiveGateway:
     def __init__(self):
         print("Initializing Document Understanding Model & Privacy Engines...")
-        # Initialize Microsoft Presidio for local PII masking
         self.analyzer = AnalyzerEngine()
         self.anonymizer = AnonymizerEngine()
 
     def mask_pii(self, text: str) -> str:
         """Scans text for PII (Names, Emails, Phone Numbers) and masks it."""
-        results = self.analyzer.analyze(text=text, entities=["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"], language='en')
+        results = self.analyzer.analyze(
+            text=text, 
+            entities=["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD"], 
+            language='en'
+        )
         anonymized_result = self.anonymizer.anonymize(text=text, analyzer_results=results)
         return anonymized_result.text
 
-    def process_document(self, file_path: str):
-        """The DUM: Extracts and categorizes elements using layout mapping."""
-        print(f"\nProcessing: {file_path}")
+    def process_document(self, file_path: str, tabular_output_path: str, text_output_path: str):
+        """
+        Extracts, categorizes, masks, and SAVES the elements to disk 
+        so downstream pipelines can read them.
+        """
+        print(f"\nProcessing Document: {file_path}")
         
-        # 'unstructured' uses ML layout parsing to find tables and text separately
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Raw PDF not found at {file_path}")
+
         elements = partition_pdf(
             filename=file_path,
-            strategy="hi_res", # Uses layout-aware ML models
+            strategy="hi_res", 
             infer_table_structure=True 
         )
 
-        tabular_data = []
+        tabular_data_html = []
         unstructured_text = []
 
-        # The Semantic Router Node
+        # 1. Route and Mask
         for element in elements:
             element_type = type(element).__name__
             
             if element_type == "Table":
-                # Route to Track A (ML Math)
-                tabular_data.append(element.metadata.text_as_html)
+                tabular_data_html.append(element.metadata.text_as_html)
             elif element_type in ["Text", "NarrativeText", "Title"]:
-                # Mask PII and Route to Track B (RAG Logic)
                 clean_text = self.mask_pii(element.text)
                 unstructured_text.append(clean_text)
 
-        return tabular_data, unstructured_text
+        # 2. Save Text for RAG (Track B)
+        os.makedirs(os.path.dirname(text_output_path), exist_ok=True)
+        with open(text_output_path, "w", encoding="utf-8") as f:
+            f.write("\n\n".join(unstructured_text))
+        print(f"-> Masked text saved to: {text_output_path}")
 
-# --- Execution ---
-if __name__ == "__main__":
-    gateway = CognitiveGateway()
-    
-    # Mocking the execution for demonstration:
-    print("\n--- Pipeline Ready ---")
-    print("1. Awaiting PDF Upload.")
-    print("2. DUM will separate Financial Tables from Business Narratives.")
-    print("3. PII Node will scrub sensitive entities locally.")
-    print("4. Router will push data to Track A (CSV) and Track B (Text).")
+        # 3. Save Tabular Data for ML (Track A)
+        os.makedirs(os.path.dirname(tabular_output_path), exist_ok=True)
+        if tabular_data_html:
+            try:
+                # Wrap the HTML string in io.StringIO to prevent Pandas from treating it as a file path
+                html_buffer = io.StringIO(tabular_data_html[0])
+                dfs = pd.read_html(html_buffer)
+                
+                if dfs:
+                    dfs[0].to_csv(tabular_output_path, index=False)
+                    print(f"-> Extracted tables saved to: {tabular_output_path}")
+            except Exception as e:
+                print(f"-> Error converting extracted HTML table to CSV: {e}")
+        else:
+            print("-> Warning: No tabular data found in this document.")
+
+        return tabular_data_html, unstructured_text
