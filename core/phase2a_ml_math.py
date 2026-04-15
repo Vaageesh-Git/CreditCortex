@@ -172,7 +172,7 @@ if __name__ == "__main__":
     NEW_APPLICATION_PATH = "data/clean_tabular/new_application.csv"
     
     # Toggle this flag to simulate your deployment environment
-    IS_TRAINING_DAY = True 
+    IS_TRAINING_DAY = False 
     
     if IS_TRAINING_DAY:
         # A CRON job or MLOps pipeline runs this once a month
