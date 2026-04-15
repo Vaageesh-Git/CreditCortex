@@ -6,9 +6,13 @@ import joblib
 import os
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
+from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.metrics import roc_auc_score
+import numpy as np
+from xgboost import callback
 
 class MLRiskEngine:
-    def __init__(self, artifact_dir="../core/artifacts/"):
+    def __init__(self, artifact_dir="core/artifacts/"):
         # We define a directory to save our trained model files
         self.artifact_dir = artifact_dir
         os.makedirs(self.artifact_dir, exist_ok=True)
@@ -27,26 +31,92 @@ class MLRiskEngine:
         self.feature_names = None
 
     def train_and_save_model(self, file_path: str, target_column: str = 'is_npa'):
-        """Runs strictly on a schedule (e.g., monthly). Trains and saves the artifacts."""
-        print(f"--- INITIATING OFFLINE TRAINING PIPELINE ---")
+        print(f"--- INITIATING ADVANCED TRAINING PIPELINE ---")
+
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Dataset not found at {file_path}.")
 
         df = pd.read_csv(file_path)
+        df["credit_to_debit_ratio"] = df["annual_inc"] / (df["loan_amnt"] + 1)
+        df["high_dti_flag"] = (df["dti"] > 25).astype(int)
+        df["credit_score_avg"] = (df["fico_range_low"] + df["fico_range_high"]) / 2
+
         X = df.drop(columns=[target_column])
         y = df[target_column]
+
         self.feature_names = X.columns.tolist()
 
-        print(f"Training on {len(X)} records...")
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        
-        self.model.fit(X_train, y_train)
-        
-        # Save the Model and Feature Names securely to disk
+        X_train, X_temp, y_train, y_temp = train_test_split(
+            X, y, test_size=0.3, stratify=y, random_state=42
+        )
+
+        X_val, X_test, y_val, y_test = train_test_split(
+            X_temp, y_temp, test_size=0.5, stratify=y_temp, random_state=42
+        )
+
+        scale_pos_weight = (len(y_train) - sum(y_train)) / sum(y_train)
+
+        self.model = xgb.XGBClassifier(
+            objective='binary:logistic',
+            eval_metric='auc',
+            max_depth=5,
+            learning_rate=0.05,
+            n_estimators=500,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_alpha=0.1,
+            reg_lambda=1,
+            scale_pos_weight=scale_pos_weight,
+            random_state=42
+        )
+
+        skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+        cv_scores = []
+
+        print("Running Cross Validation...")
+
+        for train_idx, val_idx in skf.split(X_train, y_train):
+            X_tr, X_va = X_train.iloc[train_idx], X_train.iloc[val_idx]
+            y_tr, y_va = y_train.iloc[train_idx], y_train.iloc[val_idx]
+
+            self.model.fit(
+                X_tr, y_tr,
+                eval_set=[(X_va, y_va)],
+                callbacks=[
+                    callback.EarlyStopping(
+                        rounds=10,
+                        save_best=True
+                    )
+                ],
+                verbose=False
+            )
+
+            preds = self.model.predict_proba(X_va)[:, 1]
+            auc = roc_auc_score(y_va, preds)
+            cv_scores.append(auc)
+
+        print(f"CV AUC Scores: {cv_scores}")
+        print(f"Mean CV AUC: {np.mean(cv_scores):.4f}")
+
+        print("Training Final Model with Early Stopping...")
+
+        self.model.fit(
+            X_train, y_train,
+            eval_set=[(X_val, y_val)],
+            early_stopping_rounds=50,
+            verbose=True
+        )
+
+        test_preds = self.model.predict_proba(X_test)[:, 1]
+        test_auc = roc_auc_score(y_test, test_preds)
+
+        print(f"Final Test AUC: {test_auc:.4f}")
+
         self.model.save_model(self.model_path)
         joblib.dump(self.feature_names, self.features_path)
+
         print(f"SUCCESS: Model saved to {self.model_path}")
-        print(f"SUCCESS: Features saved to {self.features_path}\n")
 
     def load_production_model(self):
         """Loads the saved artifacts into memory for real-time inference."""
@@ -95,33 +165,42 @@ class MLRiskEngine:
 # --- Execution Simulation ---
 if __name__ == "__main__":
     engine = MLRiskEngine()
-    DATASET_PATH = "../data/clean_tabular/training_dataset.csv" 
+    
+    # Paths for your data
+    TRAINING_DATASET_PATH = "data/clean_tabular/cleaned_training_dataset.csv" 
+    # This is the file that Phase 1 (Gateway) will output after processing a new loan application
+    NEW_APPLICATION_PATH = "data/clean_tabular/new_application.csv"
     
     # Toggle this flag to simulate your deployment environment
-    IS_TRAINING_DAY = False 
+    IS_TRAINING_DAY = True 
     
     if IS_TRAINING_DAY:
         # A CRON job or MLOps pipeline runs this once a month
-        engine.train_and_save_model(DATASET_PATH)
+        engine.train_and_save_model(TRAINING_DATASET_PATH)
     else:
-        # The Live API runs this every time a loan officer hits "Submit"
+        # The Live API runs this every time a new application is submitted
         print("--- REAL-TIME API INFERENCE ---")
         
-        # Mocking an incoming request from the Document Gateway
-        mock_data = pd.DataFrame({
-            'avg_monthly_balance': [150000],
-            'cheque_bounce_count_6m': [6],
-            'gst_to_bank_variance_pct': [22.5],
-            'credit_to_debit_ratio': [0.8],
-            'industry_risk_tier': [3]
-        })
-        
         try:
-            # The model loads from disk (if not already in memory) and predicts instantly
-            risk_score, explanation = engine.evaluate_borrower(mock_data)
+            # 1. Load the actual parsed borrower data generated by the Gateway
+            if not os.path.exists(NEW_APPLICATION_PATH):
+                 raise FileNotFoundError(f"Waiting for Phase 1 output. Please ensure applicant data is saved at: {NEW_APPLICATION_PATH}")
             
-            print(f"Predicted NPA Risk: {risk_score * 100:.2f}%")
+            print(f"Ingesting actual applicant features from {NEW_APPLICATION_PATH}...")
+            incoming_data = pd.read_csv(NEW_APPLICATION_PATH)
+            
+            # Assuming we are evaluating one applicant at a time (the first row)
+            applicant_data = incoming_data.iloc[[0]] 
+            
+            # 2. The model loads from disk (if not already in memory) and predicts instantly
+            risk_score, explanation = engine.evaluate_borrower(applicant_data)
+            
+            # 3. Output results to be passed to Phase 3 (The Orchestrator)
+            print(f"\nPredicted NPA Risk: {risk_score * 100:.2f}%")
             print("AI Feedback Signals:")
             print(explanation)
+            
         except RuntimeError as e:
-             print(f"API Error: {e}")
+             print(f"Model Error: {e}")
+        except Exception as e:
+             print(f"System Error: {e}")
