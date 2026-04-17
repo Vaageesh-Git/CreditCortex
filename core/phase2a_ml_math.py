@@ -153,9 +153,14 @@ class MLRiskEngine:
         
         # 3. Format Signals for the LLM
         signals = []
+        raw_shap_dict = {}
         for i, col in enumerate(self.feature_names):
-            impact = shap_values[0][i]
+            # Force the numpy.float32 into a native Python float
+            impact = float(shap_values[0][i]) 
             val = borrower_features.iloc[0, i]
+            
+            # Populate the dictionary for React
+            raw_shap_dict[col] = impact 
             
             if impact > 0.5: 
                 signals.append(f"CRITICAL RISK (+): {col} is at {val}, heavily increasing default probability.")
@@ -166,7 +171,7 @@ class MLRiskEngine:
 
         explanation_text = "\n".join(signals) if signals else "No overwhelming singular factors detected."
         
-        return risk_probability, explanation_text
+        return risk_probability, explanation_text, raw_shap_dict
 
 # --- Execution Simulation ---
 if __name__ == "__main__":
