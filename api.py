@@ -125,8 +125,6 @@ async def evaluate_loan(file: UploadFile = File(...)):
             raw_data_dict = json.loads(applicant_data.to_json(orient="records"))[0]
         else:
             raw_data_dict = {}
-        print("RAG TEXT:\n", final_memo)
-        print("PARSED JSON:\n", rag_output)
         
         return {
             "routing": routing,
