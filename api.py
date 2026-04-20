@@ -5,6 +5,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import json
+import re
 
 # Import the core AI modules
 from core.phase1_gateway import CognitiveGateway
@@ -23,16 +24,14 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Add this block to allow React to talk to FastAPI
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TEMP allow all
+    allow_origins=["*"], 
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize the AI Engines globally so they stay in memory between requests
 print("Waking up AI Agents...")
 gateway = CognitiveGateway()
 ml_engine = MLRiskEngine()
@@ -40,10 +39,19 @@ rag_engine = RAGComplianceEngine()
 orchestrator = CreditOrchestrator()
 hitl_router = HITLRouter()
 
-# Ensure directories exist
-os.makedirs("data/raw_uploads", exist_ok=True)
-os.makedirs("data/clean_tabular", exist_ok=True)
-os.makedirs("data/clean_text", exist_ok=True)
+os.makedirs("customer_data/raw_uploads", exist_ok=True)
+os.makedirs("customer_data/clean_tabular", exist_ok=True)
+os.makedirs("customer_data/clean_text", exist_ok=True)
+
+
+def extract_json(text):
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except:
+            return None
+    return None
 
 @app.post("/evaluate-loan")
 async def evaluate_loan(file: UploadFile = File(...)):
@@ -55,18 +63,15 @@ async def evaluate_loan(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
     # Define temporary paths for this specific request
-    pdf_path = f"data/raw_uploads/{file.filename}"
-    csv_path = f"data/clean_tabular/{file.filename.replace('.pdf', '.csv')}"
-    text_path = f"data/clean_text/{file.filename.replace('.pdf', '.txt')}"
+    pdf_path = f"customer_data/raw_uploads/{file.filename}"
+    csv_path = f"customer_data/clean_tabular/{file.filename.replace('.pdf', '.csv')}"
+    text_path = f"customer_data/clean_text/{file.filename.replace('.pdf', '.txt')}"
 
     try:
         # Save the uploaded file to disk
         with open(pdf_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # ---------------------------------------------------------
-        # PHASE 1: Data Gateway (LLM Extraction & Pre-Flight)
-        # ---------------------------------------------------------
         # The new gateway returns the exact status and a single string of text
         gateway_status, borrower_profile_text = gateway.process_document(
             file_path=pdf_path, 
@@ -88,51 +93,47 @@ async def evaluate_loan(file: UploadFile = File(...)):
                 "borrower_data": {}
             }
 
-        # ---------------------------------------------------------
-        # PHASE 2A: Mathematical Risk (XGBoost)
-        # ---------------------------------------------------------
         # If it passed the gateway, we guarantee the CSV is perfect
         applicant_data = pd.read_csv(csv_path)
         applicant_data_row = applicant_data.iloc[[0]]
+        if "foir" in applicant_data_row.columns and applicant_data_row["foir"].max() > 1:
+            applicant_data_row["foir"] = applicant_data_row["foir"] / 100
+
+        applicant_data_row.fillna(0, inplace=True)
         
-        # Unpack the 3 variables returned by the upgraded ML Engine
         risk_score, shap_text, raw_shap_dict = ml_engine.evaluate_borrower(applicant_data_row)
-
-        # ---------------------------------------------------------
-        # PHASE 2B: Regulatory Compliance (RAG)
-        # ---------------------------------------------------------
         retrieved_rules = rag_engine.evaluate_compliance(borrower_profile_text)
-
-        # ---------------------------------------------------------
-        # PHASE 3: The Orchestrator
-        # ---------------------------------------------------------
         final_memo = orchestrator.generate_credit_memo(
             borrower_profile=borrower_profile_text,
             risk_score=risk_score,
-            shap_signals=shap_text, # Fixed: Pass 'shap_text' to the LLM, not the raw dict
+            shap_signals=shap_text,
             retrieved_rules=retrieved_rules
         )
 
-        # ---------------------------------------------------------
-        # PHASE 4: HITL Routing
-        # ---------------------------------------------------------
-        routing_decision = hitl_router.determine_routing_action(risk_score, final_memo)
+        extracted_data = applicant_data_row.to_dict(orient="records")[0]
+        extracted_data["credit_score_avg"] = extracted_data.get("cibil_score", 0)
+        rag_text = final_memo 
+        rag_output = extract_json(rag_text) 
+
+        routing = hitl_router.determine_routing_action(
+            risk_score=risk_score,
+            rag_output=rag_output,
+            features=extracted_data
+        )
         
-        # Safely parse the Pandas row to standard JSON
         if not applicant_data.empty:
             raw_data_dict = json.loads(applicant_data.to_json(orient="records"))[0]
         else:
             raw_data_dict = {}
+        print("RAG TEXT:\n", final_memo)
+        print("PARSED JSON:\n", rag_output)
         
-        # ---------------------------------------------------------
-        # Return the JSON Response
-        # ---------------------------------------------------------
         return {
-            "routing": routing_decision,
+            "routing": routing,
             "credit_memo": final_memo,
             "metrics": {
                 "risk_score_predicted": round(risk_score * 100, 2),
-                "shap_signals": raw_shap_dict # Send the raw numbers to React
+                "shap_signals": raw_shap_dict
             },
             "borrower_data": raw_data_dict
         }
@@ -141,6 +142,5 @@ async def evaluate_loan(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Pipeline Execution Failed: {str(e)}")
 
     finally:
-        # Cleanup: Remove the uploaded PDF from the server after processing
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
