@@ -30,7 +30,7 @@ class MLRiskEngine:
         self.explainer = None
         self.feature_names = None
 
-    def train_and_save_model(self, file_path: str, target_column: str = 'is_npa'):
+    def train_and_save_model(self, file_path: str, target_column: str = 'target'):
         print(f"--- INITIATING ADVANCED TRAINING PIPELINE ---")
 
         if not os.path.exists(file_path):
@@ -38,11 +38,13 @@ class MLRiskEngine:
 
         df = pd.read_csv(file_path)
         df["credit_to_debit_ratio"] = df["annual_inc"] / (df["loan_amnt"] + 1)
-        df["high_dti_flag"] = (df["dti"] > 25).astype(int)
-        df["credit_score_avg"] = (df["fico_range_low"] + df["fico_range_high"]) / 2
+        df["high_dti_flag"] = (df["foir"] > 0.5).astype(int)
+        df["credit_score_avg"] = df["cibil_score"]
 
         X = df.drop(columns=[target_column])
         y = df[target_column]
+
+        X = pd.get_dummies(X, drop_first=True)
 
         self.feature_names = X.columns.tolist()
 
@@ -134,6 +136,15 @@ class MLRiskEngine:
         """The production function. Runs instantly using the loaded model."""
         if self.explainer is None:
              self.load_production_model()
+
+        if "cibil_score" in borrower_features.columns:
+            borrower_features["credit_score_avg"] = borrower_features["cibil_score"]
+
+        if "annual_inc" in borrower_features.columns and "loan_amnt" in borrower_features.columns:
+            borrower_features["credit_to_debit_ratio"] = borrower_features["annual_inc"] / (borrower_features["loan_amnt"] + 1)
+
+        if "foir" in borrower_features.columns:
+            borrower_features["high_dti_flag"] = (borrower_features["foir"] > 0.5).astype(int)
         
         aligned_features = pd.DataFrame(index=borrower_features.index, columns=self.feature_names)
 
@@ -178,9 +189,9 @@ if __name__ == "__main__":
     engine = MLRiskEngine()
     
     # Paths for your data
-    TRAINING_DATASET_PATH = "data/clean_tabular/cleaned_training_dataset.csv" 
+    TRAINING_DATASET_PATH = "system_data/training_data/cleaned_training_dataset.csv" 
     # This is the file that Phase 1 (Gateway) will output after processing a new loan application
-    NEW_APPLICATION_PATH = "data/clean_tabular/new_application.csv"
+    NEW_APPLICATION_PATH = "customer_data/clean_tabular/new_application.csv"
     
     # Toggle this flag to simulate your deployment environment
     IS_TRAINING_DAY = False 
