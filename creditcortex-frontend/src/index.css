@@ -1,1 +1,146 @@
 @import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  font-family:
+    "Avenir Next",
+    "Segoe UI",
+    "Helvetica Neue",
+    sans-serif;
+  background-color: #eef3f6;
+  color: #0f172a;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top left, rgba(15, 119, 198, 0.12), transparent 24%),
+    linear-gradient(180deg, #eef4f8 0%, #f7f5ef 52%, #eef3f6 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: rgba(15, 119, 198, 0.18);
+  color: #0f172a;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.dashboard-title {
+  font-family:
+    "Iowan Old Style",
+    "Palatino Linotype",
+    "Book Antiqua",
+    Georgia,
+    serif;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.dashboard-kicker {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.memo-prose {
+  color: #334155;
+  font-size: 0.97rem;
+  line-height: 1.8;
+}
+
+.memo-prose h1,
+.memo-prose h2,
+.memo-prose h3,
+.memo-prose h4 {
+  font-family:
+    "Iowan Old Style",
+    "Palatino Linotype",
+    "Book Antiqua",
+    Georgia,
+    serif;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  margin: 1.4rem 0 0.7rem;
+}
+
+.memo-prose h1 {
+  font-size: 1.7rem;
+}
+
+.memo-prose h2 {
+  font-size: 1.4rem;
+}
+
+.memo-prose h3 {
+  font-size: 1.18rem;
+}
+
+.memo-prose h4 {
+  font-size: 1rem;
+}
+
+.memo-prose p,
+.memo-prose ul,
+.memo-prose ol,
+.memo-prose blockquote {
+  margin: 0.9rem 0;
+}
+
+.memo-prose ul,
+.memo-prose ol {
+  padding-left: 1.35rem;
+}
+
+.memo-prose li {
+  margin: 0.4rem 0;
+}
+
+.memo-prose strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.memo-prose code {
+  border-radius: 0.5rem;
+  background: #e8eff4;
+  padding: 0.12rem 0.35rem;
+  font-size: 0.9em;
+  color: #0f172a;
+}
+
+.memo-prose pre {
+  overflow-x: auto;
+  border-radius: 1rem;
+  background: #0f172a;
+  padding: 1rem;
+  color: #e2e8f0;
+}
+
+.memo-prose blockquote {
+  border-left: 4px solid #cbd5e1;
+  padding-left: 1rem;
+  color: #475569;
+}
+
+.memo-prose hr {
+  margin: 1.6rem 0;
+  border: none;
+  border-top: 1px solid #e2e8f0;
+}
