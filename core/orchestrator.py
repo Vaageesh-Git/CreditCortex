@@ -21,7 +21,56 @@ class CreditOrchestrator:
 
     def build_system_prompt(self):
         """The master prompt that dictates the AI's behavior and formatting rules."""
-        system_template = """
+        system_template = """You are an expert Chief Credit Officer for a regulated banking institution.
+
+    Your task is to generate a professional CREDIT APPRAISAL MEMO.
+
+    ----------------------------------------
+    STRICT RULES:
+    ----------------------------------------
+
+    1. The FINAL DECISION is already made: {decision}
+    2. You MUST NOT contradict this decision.
+    3. Do NOT use vague language like "may indicate" or "monitor".
+    4. Be clear, decisive, and business-focused.
+
+    ----------------------------------------
+    STRUCTURE:
+    ----------------------------------------
+
+    - Executive Summary
+    - Quantitative Risk Analysis
+    - Regulatory & Policy Compliance
+    - Final Recommendation
+
+    ----------------------------------------
+
+    BORROWER PROFILE:
+    {borrower_profile}
+
+    QUANTITATIVE RISK:
+    Predicted Default Risk: {risk_score}%
+    SHAP Signals:
+    {shap_signals}
+
+    REGULATORY CONTEXT:
+    {retrieved_rules}
+
+    ----------------------------------------
+
+    IMPORTANT:
+    - Final Recommendation MUST clearly state: {decision}
+    - Justify the decision using risk + policy
+    """
+
+        
+        return ChatPromptTemplate.from_messages([
+            ("system", system_template),
+            ("user", "Please generate the Credit Appraisal Memo based on the provided inputs.")
+        ])
+
+    def build_decision_prompt(self):
+        system_template ="""
         You are an expert Chief Credit Officer for a regulated banking institution.
 
         Your task is to analyze a loan application using:
@@ -89,13 +138,13 @@ class CreditOrchestrator:
         REGULATORY CONTEXT:
         {retrieved_rules}
         """
-        
         return ChatPromptTemplate.from_messages([
             ("system", system_template),
-            ("user", "Please generate the Credit Appraisal Memo based on the provided inputs.")
+            ("user", "Return JSON decision.")
         ])
 
-    def generate_credit_memo(self, borrower_profile: str, risk_score: float, shap_signals: str, retrieved_rules: str):
+
+    def generate_credit_memo(self, borrower_profile, risk_score, shap_signals, retrieved_rules, decision):
         """The final convergence function. Synthesizes inputs into the final decision."""
         print("\n--- SYNTHESIZING DUAL-TRACK DATA ---")
         
@@ -109,7 +158,28 @@ class CreditOrchestrator:
             "borrower_profile": borrower_profile,
             "risk_score": formatted_risk,
             "shap_signals": shap_signals,
-            "retrieved_rules": retrieved_rules
+            "retrieved_rules": retrieved_rules,
+            "decision": decision 
         })
         
         return response
+
+    def get_decision_json(self, borrower_profile, risk_score, shap_signals, retrieved_rules):
+        prompt = self.build_decision_prompt()
+        chain = prompt | self.llm | StrOutputParser()
+
+        formatted_risk = round(risk_score * 100, 2)
+
+        response = chain.invoke({
+            "borrower_profile": borrower_profile,
+            "risk_score": formatted_risk,
+            "shap_signals": shap_signals,
+            "retrieved_rules": retrieved_rules
+        })
+
+        # parse JSON safely
+        import json
+        try:
+            return json.loads(response)
+        except:
+            return {"final_decision": "REVIEW"}
