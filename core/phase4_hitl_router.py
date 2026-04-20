@@ -1,44 +1,60 @@
 class HITLRouter:
     def __init__(self):
-        print("Initializing Human-in-the-Loop Governance Matrix...")
-        
-        self.AUTO_APPROVE_THRESHOLD = 0.15
-        self.AUTO_REJECT_THRESHOLD = 0.40
+        self.AUTO_APPROVE_THRESHOLD = 0.02
+        self.AUTO_REJECT_THRESHOLD = 0.25
 
-    def determine_routing_action(self, risk_score: float, orchestrator_memo: str) -> dict:
+    def determine_routing_action(self, risk_score, rag_output=None, features=None):
+        rag_decision = None
+        if rag_output:
+            rag_decision = str(rag_output.get("final_decision", "")).upper()
 
-        memo_upper = orchestrator_memo.upper()
+        borderline = False
+        if features:
+            cibil = features.get("cibil_score", 0)
+            foir = features.get("foir", 0)
+            enquiries = features.get("recent_enquiries_6m", 0)
+            bounces = features.get("cheque_bounce_count_6m", 0)
 
-        if "RECOMMENDED THAT THE LOAN APPLICATION BE REJECTED" in memo_upper:
+            if foir > 1:
+                foir = foir / 100
+
+            borderline = (
+                650 <= cibil <= 700 or
+                0.45 <= foir <= 0.6 or
+                enquiries >= 3 or
+                bounces >= 1
+            )
+
+        if rag_decision == "REJECT":
             return {
                 "status": "REJECTED",
                 "assigned_queue": "AUTO_REJECT",
-                "reason": "Policy violations detected (DTI, FICO, delinquencies)."
+                "reason": "RAG policy decision is reject."
             }
 
-        if "MANUAL REVIEW REQUIRED" in memo_upper or "POLICY CONFLICT DETECTED" in memo_upper:
+        if rag_decision == "REVIEW" or borderline:
             return {
-                "status": "PAUSED",
-                "assigned_queue": "HUMAN_UNDERWRITER_L2",
-                "reason": "Explicit policy conflict flagged by AI."
+                "status": "PENDING_REVIEW",
+                "assigned_queue": "HUMAN_UNDERWRITER_L1",
+                "reason": "ML and/or policy signals indicate borderline risk."
             }
 
-        if risk_score <= self.AUTO_APPROVE_THRESHOLD:
+        if rag_decision == "APPROVE" and risk_score < self.AUTO_APPROVE_THRESHOLD:
             return {
                 "status": "APPROVED",
                 "assigned_queue": "AUTO_APPROVE",
-                "reason": f"Low risk ({risk_score*100:.2f}%). Meets approval criteria."
+                "reason": f"Low risk ({risk_score*100:.2f}%) and policy aligned."
             }
 
-        elif risk_score >= self.AUTO_REJECT_THRESHOLD:
+        if risk_score >= self.AUTO_REJECT_THRESHOLD:
             return {
                 "status": "REJECTED",
                 "assigned_queue": "AUTO_REJECT",
-                "reason": f"High risk ({risk_score*100:.2f}%). Exceeds threshold."
+                "reason": f"High ML risk ({risk_score*100:.2f}%)."
             }
 
         return {
             "status": "PENDING_REVIEW",
             "assigned_queue": "HUMAN_UNDERWRITER_L1",
-            "reason": f"Moderate risk ({risk_score*100:.2f}%). Requires human judgment."
+            "reason": "Mixed ML and policy signals."
         }
