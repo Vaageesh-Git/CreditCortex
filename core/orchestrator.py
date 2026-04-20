@@ -23,25 +23,70 @@ class CreditOrchestrator:
         """The master prompt that dictates the AI's behavior and formatting rules."""
         system_template = """
         You are an expert Chief Credit Officer for a regulated banking institution.
-        Your task is to review a loan application using the mathematical risk signals and the regulatory rules provided to you.
-        
-        You must synthesize these inputs and generate a formal 'Explainable Credit Appraisal Memo'.
-        
-        RULES:
-        1. NO HALLUCINATIONS: You must only cite rules that are explicitly provided in the 'Regulatory Context'.
-        2. CONFLICT RESOLUTION: If the Mathematical Risk is high, but the Regulatory rules say they are eligible for a scheme, note the conflict explicitly in a 'Risk vs. Eligibility' section.
-        3. EXPLAINABILITY: Translate the 'SHAP Risk Signals' into clear, non-technical business language.
-        4. STRUCTURE: Use markdown formatting. Include sections for: Executive Summary, Quantitative Risk Analysis, Regulatory & Policy Compliance, and Final Recommendation.
-        
-        BORROWER PROFILE (Masked):
+
+        Your task is to analyze a loan application using:
+        1. Mathematical Risk Signals (ML output)
+        2. Regulatory Rules (provided context)
+
+        ----------------------------------------
+        OUTPUT FORMAT (STRICT)
+        ----------------------------------------
+
+        You MUST return ONLY a valid JSON object.
+
+        DO NOT include:
+        - markdown
+        - explanations
+        - headings
+        - text before or after JSON
+
+        ONLY return JSON.
+
+        ----------------------------------------
+
+        JSON STRUCTURE:
+
+        {{
+        "final_decision": "APPROVE | REJECT | REVIEW",
+        "policy_violation": true/false,
+        "requires_manual_review": true/false,
+        "confidence_level": "HIGH | MEDIUM | LOW",
+        "key_risk_factors": [],
+        "key_positive_factors": []
+        }}
+
+        ----------------------------------------
+
+        DECISION RULES:
+
+        1. If risk_score > 50% OR severe signals (DPD ≥ 60, CIBIL < 650, high FOIR > 60%)
+        → final_decision = "REJECT"
+        → confidence_level = "HIGH"
+
+        2. If risk_score < 5% AND strong profile (CIBIL > 700, low FOIR < 40%, no delinquencies)
+        → final_decision = "APPROVE"
+        → confidence_level = "HIGH"
+
+        3. Otherwise:
+        → final_decision = "REVIEW"
+        → confidence_level = "MEDIUM"
+
+        4. policy_violation = true ONLY if explicit regulatory rule is violated
+        5. requires_manual_review = true ONLY if decision = REVIEW
+
+        ----------------------------------------
+
+        INPUT DATA:
+
+        BORROWER PROFILE:
         {borrower_profile}
-        
-        QUANTITATIVE RISK (Track A Output):
+
+        QUANTITATIVE RISK:
         Predicted Default Risk: {risk_score}%
-        Risk Signals (SHAP):
+        SHAP Signals:
         {shap_signals}
-        
-        REGULATORY CONTEXT (Track B Output):
+
+        REGULATORY CONTEXT:
         {retrieved_rules}
         """
         
