@@ -133,14 +133,24 @@ async def evaluate_loan(file: UploadFile = File(...)):
         else:
             raw_data_dict = {}
         
+
+        conduct_metrics = {
+            "cheque_bounces": extracted_data.get("cheque_bounce_count_6m", 0),
+            "max_dpd": extracted_data.get("max_dpd_12m", 0),
+            "recent_enquiries": extracted_data.get("recent_enquiries_6m", 0)
+        }
+
+        percentage_metrics = {
+            "foir": extracted_data.get("foir", 0),
+            "dti": extracted_data.get("foir", 0),  # fallback if same
+            "credit_utilization": extracted_data.get("credit_utilization", 0)
+        }
         return {
             "routing": routing,
+            "decision": decision_json,
             "credit_memo": final_memo,
-            "metrics": {
-                "risk_score_predicted": round(risk_score * 100, 2),
-                "shap_signals": raw_shap_dict
-            },
-            "borrower_data": raw_data_dict
+            "conduct_metrics": conduct_metrics,          # 🔥 ADD THIS
+            "percentage_metrics": percentage_metrics     # 🔥 ADD THIS
         }
 
     except Exception as e:
