@@ -64,52 +64,75 @@ async def evaluate_loan(file: UploadFile = File(...)):
         with open(pdf_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # PHASE 1: Data Gateway
-        _, unstructured_text_list = gateway.process_document(
+        # ---------------------------------------------------------
+        # PHASE 1: Data Gateway (LLM Extraction & Pre-Flight)
+        # ---------------------------------------------------------
+        # The new gateway returns the exact status and a single string of text
+        gateway_status, borrower_profile_text = gateway.process_document(
             file_path=pdf_path, 
             tabular_output_path=csv_path, 
             text_output_path=text_path
         )
-        borrower_profile_text = " ".join(unstructured_text_list)
 
+        # The new Pre-Flight Gate relies on the LLM's structured output
+        if gateway_status["status"] == "HALTED":
+            missing = gateway_status["missing"]
+            return {
+                "routing": {
+                    "status": "PAUSED",
+                    "assigned_queue": "DOCUMENT_COLLECTION_TEAM",
+                    "reason": f"Gateway halted. Missing semantic data: {', '.join(missing)}"
+                },
+                "credit_memo": f"### ⚠️ Document Ingestion Alert\n\nThe AI was unable to locate critical requirements (`{', '.join(missing)}`) in the uploaded document. \n\n**Action Required:** Please contact the borrower to submit a complete application.",
+                "metrics": {"risk_score_predicted": 0, "shap_signals": {}},
+                "borrower_data": {}
+            }
+
+        # ---------------------------------------------------------
         # PHASE 2A: Mathematical Risk (XGBoost)
-        if not os.path.exists(csv_path):
-            # Fault-Tolerant Early Exit
-            return JSONResponse(status_code=200, content={
-                "status": "PAUSED",
-                "assigned_queue": "DOCUMENT_COLLECTION_TEAM",
-                "reason": "Missing structured financial tables in uploaded PDF.",
-                "credit_memo": "ERROR: Credit Memo generation aborted due to missing financial data."
-            })
+        # ---------------------------------------------------------
+        # If it passed the gateway, we guarantee the CSV is perfect
+        applicant_data = pd.read_csv(csv_path)
+        applicant_data_row = applicant_data.iloc[[0]]
         
-        applicant_data = pd.read_csv(csv_path).iloc[[0]]
-        risk_score, shap_signals, raw_shap_dict = ml_engine.evaluate_borrower(applicant_data)
+        # Unpack the 3 variables returned by the upgraded ML Engine
+        risk_score, shap_text, raw_shap_dict = ml_engine.evaluate_borrower(applicant_data_row)
 
+        # ---------------------------------------------------------
         # PHASE 2B: Regulatory Compliance (RAG)
+        # ---------------------------------------------------------
         retrieved_rules = rag_engine.evaluate_compliance(borrower_profile_text)
 
+        # ---------------------------------------------------------
         # PHASE 3: The Orchestrator
+        # ---------------------------------------------------------
         final_memo = orchestrator.generate_credit_memo(
             borrower_profile=borrower_profile_text,
             risk_score=risk_score,
-            shap_signals=shap_signals,
+            shap_signals=shap_text, # Fixed: Pass 'shap_text' to the LLM, not the raw dict
             retrieved_rules=retrieved_rules
         )
 
+        # ---------------------------------------------------------
         # PHASE 4: HITL Routing
+        # ---------------------------------------------------------
         routing_decision = hitl_router.determine_routing_action(risk_score, final_memo)
+        
+        # Safely parse the Pandas row to standard JSON
         if not applicant_data.empty:
             raw_data_dict = json.loads(applicant_data.to_json(orient="records"))[0]
         else:
             raw_data_dict = {}
         
+        # ---------------------------------------------------------
         # Return the JSON Response
+        # ---------------------------------------------------------
         return {
             "routing": routing_decision,
             "credit_memo": final_memo,
             "metrics": {
                 "risk_score_predicted": round(risk_score * 100, 2),
-                "shap_signals": raw_shap_dict
+                "shap_signals": raw_shap_dict # Send the raw numbers to React
             },
             "borrower_data": raw_data_dict
         }

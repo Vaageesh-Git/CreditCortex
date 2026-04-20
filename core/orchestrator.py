@@ -9,7 +9,7 @@ load_dotenv()
 
 class CreditOrchestrator:
     def __init__(self):
-        print("Initializing the AI Chief Credit Officer (Powered by Groq)...")
+        print("Initializing the AI Chief Credit Officer (Powered by Gemini)...")
         
         # We use LLaMA 3 70B for deep reasoning and strict formatting compliance.
         # Temperature is kept at 0 to prevent creative hallucinations in banking decisions.
@@ -59,7 +59,7 @@ class CreditOrchestrator:
         
         formatted_risk = round(risk_score * 100, 2)
         
-        print("Drafting final Credit Appraisal Memo at Groq speed...\n")
+        print("Drafting final Credit Appraisal Memo at Gemini speed...\n")
         response = chain.invoke({
             "borrower_profile": borrower_profile,
             "risk_score": formatted_risk,
