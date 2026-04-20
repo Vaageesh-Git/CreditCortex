@@ -103,7 +103,8 @@ async def evaluate_loan(file: UploadFile = File(...)):
         
         risk_score, shap_text, raw_shap_dict = ml_engine.evaluate_borrower(applicant_data_row)
         retrieved_rules = rag_engine.evaluate_compliance(borrower_profile_text)
-        final_memo = orchestrator.generate_credit_memo(
+
+        decision_json = orchestrator.get_decision_json(
             borrower_profile=borrower_profile_text,
             risk_score=risk_score,
             shap_signals=shap_text,
@@ -112,13 +113,19 @@ async def evaluate_loan(file: UploadFile = File(...)):
 
         extracted_data = applicant_data_row.to_dict(orient="records")[0]
         extracted_data["credit_score_avg"] = extracted_data.get("cibil_score", 0)
-        rag_text = final_memo 
-        rag_output = extract_json(rag_text) 
 
         routing = hitl_router.determine_routing_action(
             risk_score=risk_score,
-            rag_output=rag_output,
+            rag_output=decision_json,
             features=extracted_data
+        )
+
+        final_memo = orchestrator.generate_credit_memo(
+            borrower_profile=borrower_profile_text,
+            risk_score=risk_score,
+            shap_signals=shap_text,
+            retrieved_rules=retrieved_rules,
+            decision=decision_json["final_decision"]   # 🔥 IMPORTANT
         )
         
         if not applicant_data.empty:
