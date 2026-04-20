@@ -61,6 +61,8 @@ class CreditOrchestrator:
     IMPORTANT:
     - Final Recommendation MUST clearly state: {decision}
     - Justify the decision using risk + policy
+    - DO NOT modify or recompute any numeric values.
+    - Use only provided numbers exactly.
     """
 
         
