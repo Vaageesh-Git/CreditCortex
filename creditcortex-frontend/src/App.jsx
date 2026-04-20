@@ -97,20 +97,26 @@ const STATUS_META = {
 const FIELD_LABELS = {
   annual_inc: 'Annual Income',
   dti: 'Debt-to-Income',
+  foir: 'FOIR',
   installment: 'Monthly Installment',
   fico_range_low: 'FICO Low',
   fico_range_high: 'FICO High',
   credit_score_avg: 'Credit Score Avg',
+  cibil_score: 'CIBIL Score',
   delinq_2yrs: 'Delinquencies (2Y)',
   pub_rec: 'Public Records',
   pub_rec_bankruptcies: 'Bankruptcies',
   revol_bal: 'Revolving Balance',
   revol_util: 'Revolving Utilization',
+  credit_utilization: 'Credit Utilization',
   total_acc: 'Total Accounts',
   open_acc: 'Open Accounts',
   inq_last_6mths: 'Recent Inquiries',
   acc_now_delinq: 'Current Delinquencies',
   num_tl_90g_dpd_24m: '90+ DPD Trades',
+  max_dpd: 'Max DPD (12M)',
+  recent_enquiries: 'Recent Enquiries (6M)',
+  cheque_bounces: 'Cheque Bounces (6M)',
   loan_amnt: 'Loan Amount',
   term: 'Term',
   int_rate: 'Interest Rate',
@@ -141,14 +147,27 @@ const FIELD_LABELS = {
   grade_E: 'Grade E',
   grade_F: 'Grade F',
   grade_G: 'Grade G',
+  final_decision: 'Final Decision',
+  confidence_level: 'Confidence Level',
+  policy_violation: 'Policy Violation',
+  requires_manual_review: 'Manual Review',
+  risk_score_predicted: 'Risk Score',
 };
 
 const CURRENCY_KEYS = new Set(['annual_inc', 'installment', 'revol_bal', 'loan_amnt']);
-const PERCENT_KEYS = new Set(['dti', 'revol_util', 'int_rate', 'risk_score_predicted']);
+const PERCENT_KEYS = new Set([
+  'dti',
+  'foir',
+  'revol_util',
+  'credit_utilization',
+  'int_rate',
+  'risk_score_predicted',
+]);
 const INTEGER_KEYS = new Set([
   'fico_range_low',
   'fico_range_high',
   'credit_score_avg',
+  'cibil_score',
   'delinq_2yrs',
   'pub_rec',
   'pub_rec_bankruptcies',
@@ -157,6 +176,9 @@ const INTEGER_KEYS = new Set([
   'inq_last_6mths',
   'acc_now_delinq',
   'num_tl_90g_dpd_24m',
+  'max_dpd',
+  'recent_enquiries',
+  'cheque_bounces',
 ]);
 
 const PIPELINE_STAGES = [
@@ -197,6 +219,37 @@ function toNumber(value) {
   if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) {
     return Number(value);
   }
+  return null;
+}
+
+function hasRenderableValue(value) {
+  return value !== null && value !== undefined && value !== '';
+}
+
+function normalizePercentValue(value) {
+  const numericValue = toNumber(value);
+  if (numericValue === null) return null;
+  return Math.abs(numericValue) <= 1 ? numericValue * 100 : numericValue;
+}
+
+function extractRiskScore(...sources) {
+  const patterns = [
+    /Predicted Default Risk:\s*([0-9]+(?:\.[0-9]+)?)%/i,
+    /(?:Low risk|High ML risk|High risk|Moderate risk)\s*\(([0-9]+(?:\.[0-9]+)?)%\)/i,
+    /risk[^0-9]{0,20}([0-9]+(?:\.[0-9]+)?)%/i,
+  ];
+
+  for (const source of sources) {
+    if (typeof source !== 'string' || !source.trim()) continue;
+
+    for (const pattern of patterns) {
+      const match = source.match(pattern);
+      if (match?.[1]) {
+        return Number(match[1]);
+      }
+    }
+  }
+
   return null;
 }
 
@@ -244,23 +297,82 @@ function formatMetricValue(key, value) {
 function normalizeResults(payload) {
   if (!payload) return null;
 
-  if (payload.routing) {
-    return {
-      ...payload,
-      metrics: payload.metrics || { risk_score_predicted: null, shap_signals: {} },
-      borrower_data: payload.borrower_data || {},
-    };
+  const routing = payload.routing || {
+    status: payload.status || 'PAUSED',
+    assigned_queue: payload.assigned_queue || 'DOCUMENT_COLLECTION_TEAM',
+    reason: payload.reason || 'Structured financial data is missing from the uploaded document.',
+  };
+
+  const decision = payload.decision || {};
+  const riskScore = normalizePercentValue(
+    payload.metrics?.risk_score_predicted ??
+      extractRiskScore(routing.reason, payload.credit_memo)
+  );
+
+  const percentageMetrics = {
+    foir: normalizePercentValue(payload.percentage_metrics?.foir ?? payload.borrower_data?.foir),
+    dti: normalizePercentValue(
+      payload.percentage_metrics?.dti ?? payload.borrower_data?.dti ?? payload.borrower_data?.foir
+    ),
+    credit_utilization: normalizePercentValue(
+      payload.percentage_metrics?.credit_utilization ??
+        payload.borrower_data?.credit_utilization ??
+        payload.borrower_data?.revol_util
+    ),
+  };
+
+  const conductMetrics = {
+    cheque_bounces: toNumber(
+      payload.conduct_metrics?.cheque_bounces ??
+        payload.borrower_data?.cheque_bounces ??
+        payload.borrower_data?.cheque_bounce_count_6m
+    ),
+    max_dpd: toNumber(
+      payload.conduct_metrics?.max_dpd ??
+        payload.borrower_data?.max_dpd ??
+        payload.borrower_data?.max_dpd_12m
+    ),
+    recent_enquiries: toNumber(
+      payload.conduct_metrics?.recent_enquiries ??
+        payload.borrower_data?.recent_enquiries ??
+        payload.borrower_data?.recent_enquiries_6m ??
+        payload.borrower_data?.inq_last_6mths
+    ),
+  };
+
+  const borrowerData = {
+    ...(payload.borrower_data || {}),
+    dti: percentageMetrics.dti,
+    foir: percentageMetrics.foir,
+    credit_utilization: percentageMetrics.credit_utilization,
+    revol_util:
+      percentageMetrics.credit_utilization ??
+      normalizePercentValue(payload.borrower_data?.revol_util),
+    cheque_bounces: conductMetrics.cheque_bounces,
+    max_dpd: conductMetrics.max_dpd,
+    recent_enquiries: conductMetrics.recent_enquiries,
+    final_decision: decision.final_decision,
+    confidence_level: decision.confidence_level,
+    policy_violation: decision.policy_violation,
+    requires_manual_review: decision.requires_manual_review,
+    risk_score_predicted: riskScore,
+  };
+
+  if (!hasRenderableValue(borrowerData.credit_score_avg) && hasRenderableValue(payload.borrower_data?.cibil_score)) {
+    borrowerData.credit_score_avg = payload.borrower_data.cibil_score;
   }
 
   return {
-    routing: {
-      status: payload.status || 'PAUSED',
-      assigned_queue: payload.assigned_queue || 'DOCUMENT_COLLECTION_TEAM',
-      reason: payload.reason || 'Structured financial data is missing from the uploaded document.',
-    },
+    routing,
+    decision,
     credit_memo: payload.credit_memo || 'Credit memo unavailable.',
-    metrics: payload.metrics || { risk_score_predicted: null, shap_signals: {} },
-    borrower_data: payload.borrower_data || {},
+    metrics: {
+      risk_score_predicted: riskScore,
+      shap_signals: payload.metrics?.shap_signals || {},
+    },
+    borrower_data: borrowerData,
+    conduct_metrics: conductMetrics,
+    percentage_metrics: percentageMetrics,
   };
 }
 
@@ -285,26 +397,27 @@ function getShapChartData(results) {
     .sort((left, right) => right.absoluteImpact - left.absoluteImpact);
 }
 
-function getSnapshotEntries(borrowerData) {
-  if (!borrowerData) return [];
+function getSnapshotEntries(results) {
+  const borrowerData = results?.borrower_data || {};
 
   const preferredKeys = [
+    'final_decision',
+    'confidence_level',
+    'risk_score_predicted',
+    'foir',
+    'credit_utilization',
+    'max_dpd',
+    'recent_enquiries',
+    'cheque_bounces',
+    'policy_violation',
+    'requires_manual_review',
+    'credit_score_avg',
     'loan_amnt',
     'annual_inc',
-    'dti',
-    'credit_score_avg',
-    'fico_range_low',
-    'fico_range_high',
-    'installment',
-    'term',
-    'int_rate',
-    'revol_util',
-    'revol_bal',
-    'total_acc',
   ];
 
   const preferredEntries = preferredKeys
-    .filter((key) => borrowerData[key] !== undefined && borrowerData[key] !== null && borrowerData[key] !== '')
+    .filter((key) => hasRenderableValue(borrowerData[key]))
     .map((key) => [key, borrowerData[key]]);
 
   if (preferredEntries.length) {
@@ -312,178 +425,262 @@ function getSnapshotEntries(borrowerData) {
   }
 
   return Object.entries(borrowerData)
-    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .filter(([, value]) => hasRenderableValue(value))
     .slice(0, 10);
 }
 
 function buildRadarData(borrowerData) {
-  const annualIncome = toNumber(borrowerData.annual_inc);
-  const loanAmount = toNumber(borrowerData.loan_amnt);
-  const installment = toNumber(borrowerData.installment);
-  const annualizedInstallment = installment !== null ? installment * 12 : null;
   const creditScoreAvg =
     toNumber(borrowerData.credit_score_avg) ||
+    toNumber(borrowerData.cibil_score) ||
     averageDefined([toNumber(borrowerData.fico_range_low), toNumber(borrowerData.fico_range_high)]);
-  const revolvingBalance = toNumber(borrowerData.revol_bal);
-
-  const capacityScore = averageDefined([
-    borrowerData.dti !== undefined ? clamp(100 - ((toNumber(borrowerData.dti) || 0) / 40) * 100) : null,
-    borrowerData.credit_to_debit_ratio !== undefined
-      ? clamp(((toNumber(borrowerData.credit_to_debit_ratio) || 0) / 8) * 100)
-      : null,
-    annualizedInstallment !== null && annualIncome
-      ? clamp(100 - (annualizedInstallment / annualIncome) * 220)
-      : null,
-  ]);
-
-  const bureauScore = averageDefined([
-    creditScoreAvg !== null ? clamp(((creditScoreAvg - 600) / 250) * 100) : null,
-    borrowerData.delinq_2yrs !== undefined
-      ? clamp(100 - ((toNumber(borrowerData.delinq_2yrs) || 0) / 4) * 100)
-      : null,
-    borrowerData.pub_rec_bankruptcies !== undefined
-      ? clamp(100 - ((toNumber(borrowerData.pub_rec_bankruptcies) || 0) / 2) * 100)
-      : null,
-  ]);
-
-  const utilizationScore = averageDefined([
-    borrowerData.revol_util !== undefined
-      ? clamp(100 - (toNumber(borrowerData.revol_util) || 0))
-      : null,
-    revolvingBalance !== null && annualIncome
-      ? clamp(100 - ((revolvingBalance / annualIncome) * 100) / 0.6)
-      : null,
-    borrowerData.open_acc !== undefined
-      ? clamp(100 - ((toNumber(borrowerData.open_acc) || 0) / 35) * 100)
-      : null,
-  ]);
-
-  const exposureScore = averageDefined([
-    loanAmount !== null && annualIncome ? clamp(100 - ((loanAmount / annualIncome) * 100) / 0.8) : null,
-    borrowerData.int_rate !== undefined
-      ? clamp(100 - ((toNumber(borrowerData.int_rate) || 0) / 30) * 100)
-      : null,
-    borrowerData.term !== undefined
-      ? clamp(100 - ((toNumber(borrowerData.term) || 0) / 60) * 100)
-      : null,
-  ]);
-
-  const conductScore = averageDefined([
-    borrowerData.inq_last_6mths !== undefined
-      ? clamp(100 - ((toNumber(borrowerData.inq_last_6mths) || 0) / 6) * 100)
-      : null,
-    borrowerData.acc_now_delinq !== undefined
-      ? clamp(100 - (toNumber(borrowerData.acc_now_delinq) || 0) * 100)
-      : null,
-    borrowerData.num_tl_90g_dpd_24m !== undefined
-      ? clamp(100 - ((toNumber(borrowerData.num_tl_90g_dpd_24m) || 0) / 4) * 100)
-      : null,
-  ]);
+  const foir = normalizePercentValue(borrowerData.foir ?? borrowerData.dti);
+  const creditUtilization = normalizePercentValue(
+    borrowerData.credit_utilization ?? borrowerData.revol_util
+  );
+  const maxDpd = toNumber(borrowerData.max_dpd ?? borrowerData.max_dpd_12m);
+  const recentEnquiries = toNumber(
+    borrowerData.recent_enquiries ?? borrowerData.recent_enquiries_6m ?? borrowerData.inq_last_6mths
+  );
+  const chequeBounces = toNumber(
+    borrowerData.cheque_bounces ?? borrowerData.cheque_bounce_count_6m
+  );
 
   return [
-    { subject: 'Capacity', score: capacityScore },
-    { subject: 'Bureau', score: bureauScore },
-    { subject: 'Utilization', score: utilizationScore },
-    { subject: 'Exposure', score: exposureScore },
-    { subject: 'Conduct', score: conductScore },
+    creditScoreAvg !== null
+      ? { subject: 'Bureau', score: clamp(((creditScoreAvg - 300) / 600) * 100) }
+      : null,
+    foir !== null ? { subject: 'FOIR', score: clamp(100 - foir) } : null,
+    creditUtilization !== null
+      ? { subject: 'Utilization', score: clamp(100 - creditUtilization) }
+      : null,
+    maxDpd !== null ? { subject: 'DPD', score: clamp(100 - (maxDpd / 90) * 100) } : null,
+    recentEnquiries !== null
+      ? { subject: 'Enquiries', score: clamp(100 - (recentEnquiries / 6) * 100) }
+      : null,
+    chequeBounces !== null
+      ? { subject: 'Stability', score: clamp(100 - (chequeBounces / 4) * 100) }
+      : null,
   ]
-    .filter((item) => item.score !== null)
+    .filter(Boolean)
     .map((item) => ({ ...item, score: Number(item.score.toFixed(1)) }));
-}
-
-function buildExposureData(borrowerData) {
-  const annualIncome = toNumber(borrowerData.annual_inc);
-  const loanAmount = toNumber(borrowerData.loan_amnt);
-  const revolvingBalance = toNumber(borrowerData.revol_bal);
-  const annualizedInstallment = toNumber(borrowerData.installment);
-
-  return [
-    annualIncome !== null ? { label: 'Annual Income', value: annualIncome } : null,
-    loanAmount !== null ? { label: 'Loan Amount', value: loanAmount } : null,
-    revolvingBalance !== null ? { label: 'Revolving Balance', value: revolvingBalance } : null,
-    annualizedInstallment !== null
-      ? { label: 'Annual Debt Service', value: annualizedInstallment * 12 }
-      : null,
-  ].filter(Boolean);
 }
 
 function buildPressureData(borrowerData) {
   return [
-    borrowerData.dti !== undefined ? { label: 'DTI', value: toNumber(borrowerData.dti) || 0 } : null,
-    borrowerData.revol_util !== undefined
-      ? { label: 'Revol Util', value: toNumber(borrowerData.revol_util) || 0 }
+    hasRenderableValue(borrowerData.foir ?? borrowerData.dti)
+      ? { label: 'FOIR', value: normalizePercentValue(borrowerData.foir ?? borrowerData.dti) || 0 }
       : null,
-    borrowerData.int_rate !== undefined
-      ? { label: 'Interest Rate', value: toNumber(borrowerData.int_rate) || 0 }
+    hasRenderableValue(borrowerData.credit_utilization ?? borrowerData.revol_util)
+      ? {
+          label: 'Credit Util',
+          value: normalizePercentValue(
+            borrowerData.credit_utilization ?? borrowerData.revol_util
+          ) || 0,
+        }
+      : null,
+    hasRenderableValue(borrowerData.risk_score_predicted)
+      ? { label: 'PD Score', value: normalizePercentValue(borrowerData.risk_score_predicted) || 0 }
       : null,
   ].filter(Boolean);
 }
 
 function buildConductData(borrowerData) {
   return [
-    borrowerData.delinq_2yrs !== undefined
-      ? { label: 'Delinq 2Y', value: toNumber(borrowerData.delinq_2yrs) || 0 }
+    hasRenderableValue(borrowerData.max_dpd ?? borrowerData.max_dpd_12m)
+      ? { label: 'Max DPD', value: toNumber(borrowerData.max_dpd ?? borrowerData.max_dpd_12m) || 0 }
       : null,
-    borrowerData.inq_last_6mths !== undefined
-      ? { label: 'Inquiries', value: toNumber(borrowerData.inq_last_6mths) || 0 }
+    hasRenderableValue(
+      borrowerData.recent_enquiries ??
+        borrowerData.recent_enquiries_6m ??
+        borrowerData.inq_last_6mths
+    )
+      ? {
+          label: 'Enquiries',
+          value:
+            toNumber(
+              borrowerData.recent_enquiries ??
+                borrowerData.recent_enquiries_6m ??
+                borrowerData.inq_last_6mths
+            ) || 0,
+        }
       : null,
-    borrowerData.pub_rec !== undefined
-      ? { label: 'Public Rec', value: toNumber(borrowerData.pub_rec) || 0 }
+    hasRenderableValue(borrowerData.cheque_bounces ?? borrowerData.cheque_bounce_count_6m)
+      ? {
+          label: 'Cheque Bounce',
+          value: toNumber(borrowerData.cheque_bounces ?? borrowerData.cheque_bounce_count_6m) || 0,
+        }
       : null,
-    borrowerData.pub_rec_bankruptcies !== undefined
-      ? { label: 'Bankruptcy', value: toNumber(borrowerData.pub_rec_bankruptcies) || 0 }
+  ].filter(Boolean);
+}
+
+function getFactorCollections(results) {
+  const shapData = getShapChartData(results);
+  if (shapData.length) {
+    return {
+      hasNumericImpacts: true,
+      riskItems: shapData.filter((item) => item.isRisk),
+      positiveItems: shapData.filter((item) => !item.isRisk),
+    };
+  }
+
+  const decision = results?.decision || {};
+  const riskItems = Array.isArray(decision.key_risk_factors)
+    ? decision.key_risk_factors
+        .filter(Boolean)
+        .map((label, index) => ({ factor: `risk-${index}`, label, impact: null, isRisk: true }))
+    : [];
+  const positiveItems = Array.isArray(decision.key_positive_factors)
+    ? decision.key_positive_factors
+        .filter(Boolean)
+        .map((label, index) => ({ factor: `positive-${index}`, label, impact: null, isRisk: false }))
+    : [];
+
+  return {
+    hasNumericImpacts: false,
+    riskItems,
+    positiveItems,
+  };
+}
+
+function decisionTone(decision) {
+  switch (String(decision || '').toUpperCase()) {
+    case 'APPROVE':
+    case 'APPROVED':
+      return 'emerald';
+    case 'REJECT':
+    case 'REJECTED':
+      return 'rose';
+    default:
+      return 'amber';
+  }
+}
+
+function confidenceTone(confidence) {
+  switch (String(confidence || '').toUpperCase()) {
+    case 'HIGH':
+      return 'emerald';
+    case 'LOW':
+      return 'rose';
+    default:
+      return 'sky';
+  }
+}
+
+function buildDecisionSummaryCards(results) {
+  const decision = results?.decision || {};
+  const riskItems = Array.isArray(decision.key_risk_factors) ? decision.key_risk_factors : [];
+  const positiveItems = Array.isArray(decision.key_positive_factors) ? decision.key_positive_factors : [];
+  const riskScore = normalizePercentValue(results?.metrics?.risk_score_predicted);
+
+  return [
+    hasRenderableValue(decision.final_decision)
+      ? {
+          label: 'Policy Decision',
+          value: decision.final_decision,
+          caption: 'Final verdict produced by the orchestrator decision JSON.',
+          accent: decisionTone(decision.final_decision),
+        }
       : null,
-    borrowerData.acc_now_delinq !== undefined
-      ? { label: 'Current Delinq', value: toNumber(borrowerData.acc_now_delinq) || 0 }
+    hasRenderableValue(decision.confidence_level)
+      ? {
+          label: 'Confidence',
+          value: decision.confidence_level,
+          caption: 'Confidence level returned by the current credit policy evaluation.',
+          accent: confidenceTone(decision.confidence_level),
+        }
       : null,
-    borrowerData.num_tl_90g_dpd_24m !== undefined
-      ? { label: '90+ DPD', value: toNumber(borrowerData.num_tl_90g_dpd_24m) || 0 }
+    riskScore !== null
+      ? {
+          label: 'Risk Score',
+          value: `${riskScore.toFixed(2)}%`,
+          caption: 'Extracted from the current response text and aligned to the routing output.',
+          accent: riskScore >= 25 ? 'rose' : riskScore <= 2 ? 'emerald' : 'amber',
+        }
+      : null,
+    hasRenderableValue(decision.policy_violation)
+      ? {
+          label: 'Policy Violation',
+          value: decision.policy_violation ? 'Yes' : 'No',
+          caption: 'Indicates whether the AI flagged an explicit policy breach.',
+          accent: decision.policy_violation ? 'rose' : 'emerald',
+        }
+      : null,
+    hasRenderableValue(decision.requires_manual_review)
+      ? {
+          label: 'Manual Review',
+          value: decision.requires_manual_review ? 'Required' : 'Not Required',
+          caption: 'Shows whether the orchestrator requested human underwriting review.',
+          accent: decision.requires_manual_review ? 'amber' : 'sky',
+        }
+      : null,
+    riskItems.length
+      ? {
+          label: 'Risk Factors',
+          value: `${riskItems.length}`,
+          caption: 'Count of returned negative decision factors in the JSON response.',
+          accent: 'rose',
+        }
+      : null,
+    positiveItems.length
+      ? {
+          label: 'Positive Factors',
+          value: `${positiveItems.length}`,
+          caption: 'Count of returned positive decision factors in the JSON response.',
+          accent: 'emerald',
+        }
       : null,
   ].filter(Boolean);
 }
 
 function buildRiskMarkers(results) {
+  const decision = results?.decision || {};
   const borrowerData = results?.borrower_data || {};
-  const riskScore = toNumber(results?.metrics?.risk_score_predicted);
+  const riskScore = normalizePercentValue(results?.metrics?.risk_score_predicted);
+  const foir = normalizePercentValue(borrowerData.foir ?? borrowerData.dti);
+  const utilization = normalizePercentValue(
+    borrowerData.credit_utilization ?? borrowerData.revol_util
+  );
 
   return [
+    hasRenderableValue(decision.final_decision)
+      ? {
+          label: 'Final Decision',
+          value: decision.final_decision,
+          hint: 'Directly read from the structured decision JSON returned by the API.',
+          tone: decisionTone(decision.final_decision),
+        }
+      : null,
     riskScore !== null
       ? {
           label: 'Probability of Default',
           value: `${riskScore.toFixed(2)}%`,
-          hint: 'Routing thresholds: auto-approve <= 15%, auto-reject >= 40%',
-          tone: riskScore >= 40 ? 'rose' : riskScore <= 15 ? 'emerald' : 'amber',
+          hint: 'Routing thresholds now run with auto-approve below 2% and auto-reject from 25%.',
+          tone: riskScore >= 25 ? 'rose' : riskScore <= 2 ? 'emerald' : 'amber',
         }
       : null,
-    borrowerData.dti !== undefined
+    hasRenderableValue(decision.confidence_level)
       ? {
-          label: 'Debt-to-Income',
-          value: formatMetricValue('dti', borrowerData.dti),
-          hint: 'Model feature flag becomes active above 25%',
-          tone: (toNumber(borrowerData.dti) || 0) > 25 ? 'rose' : 'sky',
+          label: 'Confidence',
+          value: decision.confidence_level,
+          hint: 'Confidence level produced by the current AI decision policy.',
+          tone: confidenceTone(decision.confidence_level),
         }
       : null,
-    borrowerData.credit_score_avg !== undefined ||
-    borrowerData.fico_range_low !== undefined ||
-    borrowerData.fico_range_high !== undefined
+    foir !== null
       ? {
-          label: 'Credit Score',
-          value: formatMetricValue(
-            'credit_score_avg',
-            toNumber(borrowerData.credit_score_avg) ||
-              averageDefined([toNumber(borrowerData.fico_range_low), toNumber(borrowerData.fico_range_high)]) ||
-              0
-          ),
-          hint: 'Displayed directly from extracted bureau metrics',
-          tone: 'sky',
+          label: 'FOIR',
+          value: formatMetricValue('foir', foir),
+          hint: 'Fixed Obligation to Income Ratio taken from the latest semantic extraction.',
+          tone: foir > 60 ? 'rose' : foir >= 45 ? 'amber' : 'emerald',
         }
       : null,
-    borrowerData.revol_util !== undefined
+    utilization !== null
       ? {
-          label: 'Revolving Utilization',
-          value: formatMetricValue('revol_util', borrowerData.revol_util),
-          hint: 'High utilization materially affects repayment headroom',
-          tone: (toNumber(borrowerData.revol_util) || 0) > 75 ? 'amber' : 'emerald',
+          label: 'Credit Utilization',
+          value: formatMetricValue('credit_utilization', utilization),
+          hint: 'Higher utilization increases short-term balance sheet pressure.',
+          tone: utilization > 75 ? 'rose' : utilization >= 50 ? 'amber' : 'emerald',
         }
       : null,
   ].filter(Boolean);
@@ -547,17 +744,31 @@ function App() {
   const status = results?.routing?.status;
   const statusMeta = getStatusMeta(status);
   const StatusIcon = statusMeta.icon;
-  const riskScore = toNumber(results?.metrics?.risk_score_predicted);
+  const decision = results?.decision || {};
+  const riskScore = normalizePercentValue(results?.metrics?.risk_score_predicted);
   const shapData = getShapChartData(results);
   const borrowerData = results?.borrower_data || {};
-  const snapshotEntries = getSnapshotEntries(borrowerData);
+  const snapshotEntries = getSnapshotEntries(results);
   const radarData = buildRadarData(borrowerData);
-  const exposureData = buildExposureData(borrowerData);
+  const decisionSummaryCards = buildDecisionSummaryCards(results);
   const pressureData = buildPressureData(borrowerData);
   const conductData = buildConductData(borrowerData);
   const riskMarkers = buildRiskMarkers(results);
-  const topRiskDrivers = shapData.filter((item) => item.isRisk).slice(0, 4);
-  const topMitigants = shapData.filter((item) => !item.isRisk).slice(0, 3);
+  const factorCollections = getFactorCollections(results);
+  const topRiskDrivers = factorCollections.riskItems.slice(0, 4);
+  const topMitigants = factorCollections.positiveItems.slice(0, 3);
+  const heroHighlights = [
+    ['Policy Decision', decision.final_decision || statusMeta.label],
+    ['Confidence', decision.confidence_level || 'Not Available'],
+    ['FOIR', formatMetricValue('foir', borrowerData.foir ?? borrowerData.dti ?? null)],
+    [
+      'Credit Utilization',
+      formatMetricValue(
+        'credit_utilization',
+        borrowerData.credit_utilization ?? borrowerData.revol_util ?? null
+      ),
+    ],
+  ];
   const reportDate = new Intl.DateTimeFormat('en-IN', {
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -777,15 +988,17 @@ function App() {
                         <div key={item.factor} className="rounded-2xl border border-rose-200 bg-white p-3">
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-sm font-semibold text-slate-950">{item.label}</p>
-                            <span className="text-sm font-semibold text-rose-700">
-                              +{item.impact.toFixed(3)}
-                            </span>
+                            {item.impact !== null ? (
+                              <span className="text-sm font-semibold text-rose-700">
+                                +{item.impact.toFixed(3)}
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                       ))
                     ) : (
                       <p className="text-sm leading-6 text-slate-500">
-                        No positive SHAP risk factors available yet.
+                        No structured risk factors are available in the latest response.
                       </p>
                     )}
                   </div>
@@ -802,15 +1015,17 @@ function App() {
                         <div key={item.factor} className="rounded-2xl border border-emerald-200 bg-white p-3">
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-sm font-semibold text-slate-950">{item.label}</p>
-                            <span className="text-sm font-semibold text-emerald-700">
-                              {item.impact.toFixed(3)}
-                            </span>
+                            {item.impact !== null ? (
+                              <span className="text-sm font-semibold text-emerald-700">
+                                {item.impact.toFixed(3)}
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                       ))
                     ) : (
                       <p className="text-sm leading-6 text-slate-500">
-                        Cushion factors will appear once explainability signals are returned.
+                        Positive factors will appear here when the API returns them.
                       </p>
                     )}
                   </div>
@@ -899,12 +1114,7 @@ function App() {
                         </div>
 
                         <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                          {[
-                            ['Loan Amount', formatMetricValue('loan_amnt', borrowerData.loan_amnt || null)],
-                            ['Annual Income', formatMetricValue('annual_inc', borrowerData.annual_inc || null)],
-                            ['Debt-to-Income', formatMetricValue('dti', borrowerData.dti || null)],
-                            ['Interest Rate', formatMetricValue('int_rate', borrowerData.int_rate || null)],
-                          ].map(([label, value]) => (
+                          {heroHighlights.map(([label, value]) => (
                             <div key={label} className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
                               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
                                 {label}
@@ -949,7 +1159,7 @@ function App() {
                               Risk Score
                             </p>
                             <p className="mt-4 max-w-[220px] text-center text-xs leading-5 text-slate-500">
-                              Threshold logic from the routing engine drives the final queue assignment.
+                              Threshold logic from the current routing rules drives the final queue assignment.
                             </p>
                           </div>
                         </div>
@@ -959,19 +1169,19 @@ function App() {
                             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-700">
                               Auto Approve
                             </p>
-                            <p className="mt-2 text-xl font-semibold text-slate-950">&le; 15%</p>
+                            <p className="mt-2 text-xl font-semibold text-slate-950">&lt; 2%</p>
                           </div>
                           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
                             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-700">
                               Human Review
                             </p>
-                            <p className="mt-2 text-xl font-semibold text-slate-950">15% - 40%</p>
+                            <p className="mt-2 text-xl font-semibold text-slate-950">2% - 25%</p>
                           </div>
                           <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
                             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-rose-700">
                               Auto Reject
                             </p>
-                            <p className="mt-2 text-xl font-semibold text-slate-950">&ge; 40%</p>
+                            <p className="mt-2 text-xl font-semibold text-slate-950">&ge; 25%</p>
                           </div>
                         </div>
                       </div>
@@ -985,7 +1195,7 @@ function App() {
                       <div>
                         <p className="dashboard-kicker">Explainability</p>
                         <h3 className="dashboard-title text-[1.35rem] leading-tight text-slate-950">
-                          Top SHAP drivers
+                          {factorCollections.hasNumericImpacts ? 'Top SHAP drivers' : 'Decision factors'}
                         </h3>
                       </div>
                       <div className="rounded-2xl bg-slate-950 p-3 text-white">
@@ -1028,9 +1238,55 @@ function App() {
                             </Bar>
                           </BarChart>
                         </ResponsiveContainer>
+                      ) : topRiskDrivers.length || topMitigants.length ? (
+                        <div className="grid h-full gap-4 md:grid-cols-2">
+                          <div className="rounded-[24px] border border-rose-200 bg-rose-50 p-5">
+                            <p className="text-xs font-bold uppercase tracking-[0.18em] text-rose-700">
+                              Risk Factors
+                            </p>
+                            <div className="mt-4 space-y-3">
+                              {topRiskDrivers.length ? (
+                                topRiskDrivers.map((item) => (
+                                  <div
+                                    key={item.factor}
+                                    className="rounded-2xl border border-rose-200 bg-white p-3 text-sm font-semibold leading-6 text-slate-950"
+                                  >
+                                    {item.label}
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-sm leading-6 text-slate-500">
+                                  No negative factors were returned.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-5">
+                            <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">
+                              Positive Factors
+                            </p>
+                            <div className="mt-4 space-y-3">
+                              {topMitigants.length ? (
+                                topMitigants.map((item) => (
+                                  <div
+                                    key={item.factor}
+                                    className="rounded-2xl border border-emerald-200 bg-white p-3 text-sm font-semibold leading-6 text-slate-950"
+                                  >
+                                    {item.label}
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-sm leading-6 text-slate-500">
+                                  No positive factors were returned.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       ) : (
                         <div className="flex h-full items-center justify-center rounded-[24px] border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
-                          Explainability bars will appear once the model returns SHAP signals.
+                          Decision factors will appear here when the response includes them.
                         </div>
                       )}
                     </div>
@@ -1077,8 +1333,8 @@ function App() {
                     </div>
 
                     <p className="mt-3 text-xs leading-6 text-slate-500">
-                      Capacity, bureau quality, utilization, exposure, and conduct are derived from the
-                      live borrower fields returned by the backend.
+                      FOIR, bureau quality, utilization, DPD history, enquiry pressure, and cheque
+                      behavior are derived directly from the latest backend response.
                     </p>
                   </div>
                 </section>
@@ -1087,9 +1343,9 @@ function App() {
                   <div className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_25px_60px_-38px_rgba(15,23,42,0.25)] xl:col-span-3">
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <p className="dashboard-kicker">Exposure Stack</p>
+                        <p className="dashboard-kicker">Decision Overview</p>
                         <h3 className="dashboard-title text-[1.35rem] leading-tight text-slate-950">
-                          Income, facility, and obligations
+                          Policy and routing summary
                         </h3>
                       </div>
                       <div className="rounded-2xl bg-slate-950 p-3 text-white">
@@ -1097,43 +1353,20 @@ function App() {
                       </div>
                     </div>
 
-                    <div className="mt-6 h-[320px]">
-                      {exposureData.length ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={exposureData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-                            <CartesianGrid stroke="#e9eef4" vertical={false} />
-                            <XAxis
-                              dataKey="label"
-                              tick={{ fill: '#475569', fontSize: 12 }}
-                              axisLine={false}
-                              tickLine={false}
-                            />
-                            <YAxis
-                              tick={{ fill: '#475569', fontSize: 12 }}
-                              axisLine={false}
-                              tickLine={false}
-                              tickFormatter={(value) => `${Math.round(value / 1000)}k`}
-                            />
-                            <Tooltip
-                              formatter={(value) =>
-                                new Intl.NumberFormat('en-IN', {
-                                  style: 'currency',
-                                  currency: 'INR',
-                                  maximumFractionDigits: 0,
-                                }).format(Number(value))
-                              }
-                              contentStyle={{
-                                borderRadius: '16px',
-                                border: '1px solid #dbe4ee',
-                                boxShadow: '0 20px 50px -32px rgba(15, 23, 42, 0.4)',
-                              }}
-                            />
-                            <Bar dataKey="value" radius={[10, 10, 0, 0]} fill="#0f172a" />
-                          </BarChart>
-                        </ResponsiveContainer>
+                    <div className="mt-6 grid gap-4 md:grid-cols-2">
+                      {decisionSummaryCards.length ? (
+                        decisionSummaryCards.map((card) => (
+                          <StatTile
+                            key={card.label}
+                            label={card.label}
+                            value={card.value}
+                            caption={card.caption}
+                            accent={card.accent}
+                          />
+                        ))
                       ) : (
-                        <div className="flex h-full items-center justify-center rounded-[24px] border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
-                          Extracted exposure metrics are not available for this application.
+                        <div className="md:col-span-2 flex min-h-[320px] items-center justify-center rounded-[24px] border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+                          Structured decision metadata is not available for this application.
                         </div>
                       )}
                     </div>
