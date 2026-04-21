@@ -4,15 +4,11 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-# Load your GROQ_API_KEY from your .env file
 load_dotenv()
 
 class CreditOrchestrator:
     def __init__(self):
         print("Initializing the AI Chief Credit Officer (Powered by Gemini)...")
-        
-        # We use LLaMA 3 70B for deep reasoning and strict formatting compliance.
-        # Temperature is kept at 0 to prevent creative hallucinations in banking decisions.
         self.llm = ChatGroq(
             temperature=0,
             model_name="llama-3.3-70b-versatile", 
@@ -20,59 +16,36 @@ class CreditOrchestrator:
         )
 
     def build_system_prompt(self):
-        """The master prompt that dictates the AI's behavior and formatting rules."""
-        system_template = """You are an expert Chief Credit Officer for a regulated banking institution.
-
-    Your task is to generate a professional CREDIT APPRAISAL MEMO.
+        system_template = """You are an expert Chief Credit Officer. Generate a professional CREDIT APPRAISAL MEMO.
 
     ----------------------------------------
     STRICT RULES:
+    1. The FINAL DECISION is: {decision}
+    2. If decision is APPROVE, use a confident tone. Highlight the borrower's strengths.
+    3. If decision is REVIEW, specify exactly what a human needs to verify.
+    4. You MUST NOT contradict the provided decision: {decision}.
     ----------------------------------------
 
-    1. The FINAL DECISION is already made: {decision}
-    2. You MUST NOT contradict this decision.
-    3. Do NOT use vague language like "may indicate" or "monitor".
-    4. Be clear, decisive, and business-focused.
-
-    ----------------------------------------
     STRUCTURE:
-    ----------------------------------------
+    - Executive Summary: State the decision immediately.
+    - Quantitative Risk Analysis: Explain the {risk_score}% risk and SHAP factors.
+    - Regulatory & Policy Compliance: Mention specific RBI 2025/2026 directions.
+    - Final Recommendation: Must end with a standalone line: {decision}
 
-    - Executive Summary
-    - Quantitative Risk Analysis
-    - Regulatory & Policy Compliance
-    - Final Recommendation
+    BORROWER PROFILE: {borrower_profile}
+    QUANTITATIVE RISK: Predicted Default Risk: {risk_score}%
+    SHAP Signals: {shap_signals}
+    REGULATORY CONTEXT: {retrieved_rules}
 
-    ----------------------------------------
-
-    BORROWER PROFILE:
-    {borrower_profile}
-
-    QUANTITATIVE RISK:
-    Predicted Default Risk: {risk_score}%
-    SHAP Signals:
-    {shap_signals}
-
-    REGULATORY CONTEXT:
-    {retrieved_rules}
-
-    ----------------------------------------
-
-    IMPORTANT:
-    - Final Recommendation MUST clearly state: {decision}
-    - Justify the decision using risk + policy
-    - DO NOT modify or recompute any numeric values.
-    - Use only provided numbers exactly.
+    IMPORTANT: Do not modify numeric values. Use exact figures provided.
     """
-
-        
         return ChatPromptTemplate.from_messages([
             ("system", system_template),
-            ("user", "Please generate the Credit Appraisal Memo based on the provided inputs.")
+            ("user", "Generate the Credit Appraisal Memo.")
         ])
 
     def build_decision_prompt(self):
-        system_template ="""
+        system_template = """
         You are an expert Chief Credit Officer for a regulated banking institution.
 
         Your task is to analyze a loan application using:
@@ -82,21 +55,10 @@ class CreditOrchestrator:
         ----------------------------------------
         OUTPUT FORMAT (STRICT)
         ----------------------------------------
-
         You MUST return ONLY a valid JSON object.
-
-        DO NOT include:
-        - markdown
-        - explanations
-        - headings
-        - text before or after JSON
-
-        ONLY return JSON.
-
-        ----------------------------------------
+        DO NOT include markdown, explanations, or headings.
 
         JSON STRUCTURE:
-
         {{
         "final_decision": "APPROVE | REJECT | REVIEW",
         "policy_violation": true/false,
@@ -107,44 +69,37 @@ class CreditOrchestrator:
         }}
 
         ----------------------------------------
+        DECISION RULES (PRIORITY ORDER):
 
-        DECISION RULES:
+        1. REJECT if: 
+           - risk_score > 50% OR 
+           - CIBIL < 650 OR 
+           - Explicit Policy Violation found in Regulatory Context.
 
-        1. If risk_score > 50% OR severe signals (DPD ≥ 60, CIBIL < 650, high FOIR > 60%)
-        → final_decision = "REJECT"
-        → confidence_level = "HIGH"
+        2. APPROVE if:
+           - risk_score < 5% AND 
+           - CIBIL >= 750 AND 
+           - FOIR <= 45% (Indicates high repayment capacity).
 
-        2. If risk_score < 5% AND strong profile (CIBIL > 700, low FOIR < 40%, no delinquencies)
-        → final_decision = "APPROVE"
-        → confidence_level = "HIGH"
+        3. REVIEW if:
+           - 5% <= risk_score <= 50% OR
+           - CIBIL is between 650-749 OR
+           - Missing critical income verification data.
 
-        3. Otherwise:
-        → final_decision = "REVIEW"
-        → confidence_level = "MEDIUM"
-
-        4. policy_violation = true ONLY if explicit regulatory rule is violated
-        5. requires_manual_review = true ONLY if decision = REVIEW
-
+        4. policy_violation = true ONLY if explicit regulatory rule is violated.
+        5. requires_manual_review = true ONLY if decision = REVIEW.
         ----------------------------------------
 
         INPUT DATA:
-
-        BORROWER PROFILE:
-        {borrower_profile}
-
-        QUANTITATIVE RISK:
-        Predicted Default Risk: {risk_score}%
-        SHAP Signals:
-        {shap_signals}
-
-        REGULATORY CONTEXT:
-        {retrieved_rules}
+        BORROWER PROFILE: {borrower_profile}
+        QUANTITATIVE RISK: Predicted Default Risk: {risk_score}%
+        SHAP Signals: {shap_signals}
+        REGULATORY CONTEXT: {retrieved_rules}
         """
         return ChatPromptTemplate.from_messages([
             ("system", system_template),
             ("user", "Return JSON decision.")
         ])
-
 
     def generate_credit_memo(self, borrower_profile, risk_score, shap_signals, retrieved_rules, decision):
         """The final convergence function. Synthesizes inputs into the final decision."""
@@ -179,7 +134,6 @@ class CreditOrchestrator:
             "retrieved_rules": retrieved_rules
         })
 
-        # parse JSON safely
         import json
         try:
             return json.loads(response)
