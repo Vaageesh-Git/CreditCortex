@@ -69,7 +69,7 @@ class RAGComplianceEngine:
 if __name__ == "__main__":
     engine = RAGComplianceEngine()
     
-    POLICY_DOC_PATH = "system_data/policy_data/RBI_Priority_Sector_Guidelines.pdf"
+    POLICY_DOC_PATH = "system_data/policy_data/RBI_Loan_Guidelines.pdf"
     
     # Toggle this flag to simulate the deployment environment
     IS_POLICY_UPDATE_DAY = False 
