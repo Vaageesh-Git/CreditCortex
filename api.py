@@ -72,14 +72,12 @@ async def evaluate_loan(file: UploadFile = File(...)):
         with open(pdf_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # The new gateway returns the exact status and a single string of text
         gateway_status, borrower_profile_text = gateway.process_document(
             file_path=pdf_path, 
             tabular_output_path=csv_path, 
             text_output_path=text_path
         )
 
-        # The new Pre-Flight Gate relies on the LLM's structured output
         if gateway_status["status"] == "HALTED":
             missing = gateway_status["missing"]
             return {
@@ -93,7 +91,6 @@ async def evaluate_loan(file: UploadFile = File(...)):
                 "borrower_data": {}
             }
 
-        # If it passed the gateway, we guarantee the CSV is perfect
         applicant_data = pd.read_csv(csv_path)
         applicant_data_row = applicant_data.iloc[[0]]
         if "foir" in applicant_data_row.columns and applicant_data_row["foir"].max() > 1:
@@ -125,7 +122,7 @@ async def evaluate_loan(file: UploadFile = File(...)):
             risk_score=risk_score,
             shap_signals=shap_text,
             retrieved_rules=retrieved_rules,
-            decision=decision_json["final_decision"]   # 🔥 IMPORTANT
+            decision=decision_json["final_decision"] 
         )
         
         if not applicant_data.empty:
@@ -142,15 +139,15 @@ async def evaluate_loan(file: UploadFile = File(...)):
 
         percentage_metrics = {
             "foir": extracted_data.get("foir", 0),
-            "dti": extracted_data.get("foir", 0),  # fallback if same
+            "dti": extracted_data.get("foir", 0),
             "credit_utilization": extracted_data.get("credit_utilization", 0)
         }
         return {
             "routing": routing,
             "decision": decision_json,
             "credit_memo": final_memo,
-            "conduct_metrics": conduct_metrics,          # 🔥 ADD THIS
-            "percentage_metrics": percentage_metrics     # 🔥 ADD THIS
+            "conduct_metrics": conduct_metrics,     
+            "percentage_metrics": percentage_metrics   
         }
 
     except Exception as e:
