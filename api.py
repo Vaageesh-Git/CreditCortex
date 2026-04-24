@@ -14,6 +14,8 @@ from core.phase2b_rag_logic import RAGComplianceEngine
 from core.orchestrator import CreditOrchestrator
 from core.phase4_hitl_router import HITLRouter
 from fastapi.middleware.cors import CORSMiddleware
+from gcs_loader import download_all_assets
+from model_loader import load_all_assets
 
 load_dotenv()
 
@@ -42,6 +44,18 @@ hitl_router = HITLRouter()
 os.makedirs("customer_data/raw_uploads", exist_ok=True)
 os.makedirs("customer_data/clean_tabular", exist_ok=True)
 os.makedirs("customer_data/clean_text", exist_ok=True)
+
+load_dotenv()
+
+app = FastAPI()
+
+@app.on_event("startup")
+def startup_event():
+    print("Downloading from GCS...")
+    download_all_assets()
+
+    print("Loading models...")
+    load_all_assets()
 
 
 def extract_json(text):
