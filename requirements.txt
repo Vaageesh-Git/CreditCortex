@@ -26,3 +26,4 @@ presidio_analyzer==2.2.359
 presidio_anonymizer==2.2.359
 langchain-groq==0.1.5
 shap==0.44.1
+python-multipart==0.0.9
