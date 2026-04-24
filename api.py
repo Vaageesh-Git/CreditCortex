@@ -34,12 +34,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-print("Waking up AI Agents...")
-gateway = CognitiveGateway()
-ml_engine = MLRiskEngine()
-rag_engine = RAGComplianceEngine()
-orchestrator = CreditOrchestrator()
-hitl_router = HITLRouter()
+# print("Waking up AI Agents...")
+# gateway = CognitiveGateway()
+# ml_engine = MLRiskEngine()
+# rag_engine = RAGComplianceEngine()
+# orchestrator = CreditOrchestrator()
+# hitl_router = HITLRouter()
+
+import threading
+
+def load_heavy():
+    print("Downloading from GCS...", flush=True)
+    download_all_assets()
+
+    print("Loading models...", flush=True)
+    load_all_assets()
+
+    print("Initializing AI agents...", flush=True)
+    app.state.gateway = CognitiveGateway()
+    app.state.ml_engine = MLRiskEngine()
+    app.state.rag_engine = RAGComplianceEngine()
+    app.state.orchestrator = CreditOrchestrator()
+    app.state.hitl_router = HITLRouter()
+
+    print("✅ Models ready", flush=True)
+
+
+@app.on_event("startup")
+def startup_event():
+    print("🚀 Fast startup (non-blocking)", flush=True)
+    threading.Thread(target=load_heavy, daemon=True).start()
 
 os.makedirs("customer_data/raw_uploads", exist_ok=True)
 os.makedirs("customer_data/clean_tabular", exist_ok=True)
@@ -47,15 +71,13 @@ os.makedirs("customer_data/clean_text", exist_ok=True)
 
 load_dotenv()
 
-app = FastAPI()
+# @app.on_event("startup")
+# def startup_event():
+#     print("Downloading from GCS...")
+#     download_all_assets()
 
-@app.on_event("startup")
-def startup_event():
-    print("Downloading from GCS...")
-    download_all_assets()
-
-    print("Loading models...")
-    load_all_assets()
+#     print("Loading models...")
+#     load_all_assets()
 
 
 def extract_json(text):
@@ -77,6 +99,18 @@ async def evaluate_loan(file: UploadFile = File(...)):
     Accepts a borrower's business profile PDF, processes it through the 
     Dual-Track AI Pipeline, and returns the Credit Memo and Routing Decision.
     """
+    if not hasattr(app.state, "gateway"):
+        raise HTTPException(
+            status_code=503,
+            detail="Models are still loading. Please try again in a few seconds."
+        )
+
+    gateway = app.state.gateway
+    ml_engine = app.state.ml_engine
+    rag_engine = app.state.rag_engine
+    orchestrator = app.state.orchestrator
+    hitl_router = app.state.hitl_router
+    
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
