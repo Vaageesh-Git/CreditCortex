@@ -44,20 +44,24 @@ app.add_middleware(
 import threading
 
 def load_heavy():
-    print("Downloading from GCS...", flush=True)
-    download_all_assets()
+    try:
+        print("Downloading from GCS...", flush=True)
+        download_all_assets()
 
-    print("Loading models...", flush=True)
-    load_all_assets()
+        print("Loading models...", flush=True)
+        load_all_assets()
 
-    print("Initializing AI agents...", flush=True)
-    app.state.gateway = CognitiveGateway()
-    app.state.ml_engine = MLRiskEngine()
-    app.state.rag_engine = RAGComplianceEngine()
-    app.state.orchestrator = CreditOrchestrator()
-    app.state.hitl_router = HITLRouter()
+        print("Initializing AI agents...", flush=True)
+        app.state.gateway = CognitiveGateway()
+        app.state.ml_engine = MLRiskEngine()
+        app.state.rag_engine = RAGComplianceEngine()
+        app.state.orchestrator = CreditOrchestrator()
+        app.state.hitl_router = HITLRouter()
 
-    print("✅ Models ready", flush=True)
+        print("Models ready", flush=True)
+
+    except Exception as e:
+        print(f"MODEL LOADING FAILED: {e}", flush=True)
 
 
 @app.on_event("startup")
