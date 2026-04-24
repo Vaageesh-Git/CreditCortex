@@ -67,6 +67,10 @@ def extract_json(text):
             return None
     return None
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 @app.post("/evaluate-loan")
 async def evaluate_loan(file: UploadFile = File(...)):
     """
