@@ -1,13 +1,22 @@
 import os
+import json
 from google.cloud import storage
 
+if "GOOGLE_CREDENTIALS_JSON" in os.environ:
+    with open("gcp-key.json", "w") as f:
+        json.dump(json.loads(os.environ["GOOGLE_CREDENTIALS_JSON"]), f)
+
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcp-key.json"
+
 BUCKET_NAME = os.getenv("GCS_BUCKET")
+
 
 def download_file(bucket, blob_name, destination):
     if not os.path.exists(destination):
         print(f"Downloading {blob_name}...")
         blob = bucket.blob(blob_name)
         blob.download_to_filename(destination)
+
 
 def download_all_assets():
     client = storage.Client()
