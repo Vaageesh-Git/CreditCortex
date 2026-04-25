@@ -17,6 +17,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from gcs_loader import download_all_assets
 from model_loader import load_all_assets
 
+import spacy
+
+try:
+    spacy.load("en_core_web_sm")
+except:
+    import os
+    os.system("python -m spacy download en_core_web_sm")
+
+_original_load = spacy.load
+
+def custom_load(name, *args, **kwargs):
+    if name == "en_core_web_lg":
+        name = "en_core_web_sm"
+    return _original_load(name, *args, **kwargs)
+
+spacy.load = custom_load
+
 load_dotenv()
 
 # Initialize the API
@@ -62,12 +79,13 @@ def load_heavy():
 
     except Exception as e:
         print(f"MODEL LOADING FAILED: {e}", flush=True)
+        raise e  
 
 
 @app.on_event("startup")
 def startup_event():
-    print("Fast startup (non-blocking)", flush=True)
-    threading.Thread(target=load_heavy, daemon=True).start()
+    print("Starting full initialization...", flush=True)
+    load_heavy()
 
 os.makedirs("customer_data/raw_uploads", exist_ok=True)
 os.makedirs("customer_data/clean_tabular", exist_ok=True)
@@ -93,9 +111,15 @@ def extract_json(text):
             return None
     return None
 
+@app.get("/")
+def root():
+    return {"status": "ok"}
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "ready": hasattr(app.state, "gateway")
+    }
 
 @app.post("/evaluate-loan")
 async def evaluate_loan(file: UploadFile = File(...)):
