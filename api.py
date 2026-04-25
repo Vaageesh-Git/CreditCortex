@@ -84,8 +84,19 @@ def load_heavy():
 
 @app.on_event("startup")
 def startup_event():
-    print("Starting full initialization...", flush=True)
-    load_heavy()
+    print("Fast startup (non-blocking)", flush=True)
+    app.state.ready = False
+
+    def background():
+        try:
+            load_heavy()
+            app.state.ready = True
+            print("READY", flush=True)
+        except Exception as e:
+            print(f"FAILED: {e}", flush=True)
+
+    import threading
+    threading.Thread(target=background, daemon=True).start()
 
 os.makedirs("customer_data/raw_uploads", exist_ok=True)
 os.makedirs("customer_data/clean_tabular", exist_ok=True)
@@ -118,7 +129,7 @@ def root():
 @app.get("/health")
 def health():
     return {
-        "ready": hasattr(app.state, "gateway")
+        "ready": getattr(app.state, "ready", False)
     }
 
 @app.post("/evaluate-loan")
