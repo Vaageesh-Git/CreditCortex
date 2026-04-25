@@ -18,8 +18,14 @@ def get_client():
     return storage.Client(credentials=credentials)
 
 
+def download_file(bucket, blob_name, destination):
+    if not os.path.exists(destination):
+        print(f"Downloading {blob_name}...", flush=True)
+        blob = bucket.blob(blob_name)
+        blob.download_to_filename(destination)
+
 def download_all_assets():
-    client = get_client() 
+    client = get_client()
     bucket = client.bucket(BUCKET_NAME)
 
     os.makedirs("models", exist_ok=True)

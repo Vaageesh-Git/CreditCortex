@@ -66,7 +66,7 @@ def load_heavy():
 
 @app.on_event("startup")
 def startup_event():
-    print("🚀 Fast startup (non-blocking)", flush=True)
+    print("Fast startup (non-blocking)", flush=True)
     threading.Thread(target=load_heavy, daemon=True).start()
 
 os.makedirs("customer_data/raw_uploads", exist_ok=True)
