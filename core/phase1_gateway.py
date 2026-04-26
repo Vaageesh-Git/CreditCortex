@@ -613,7 +613,8 @@ Rules:
             return {}
 
         llm_dict: Dict[str, Optional[float]] = {}
-        for field_name, raw_value in extracted_data.model_dump().items():
+        items_to_process = extracted_data.items() if isinstance(extracted_data, dict) else extracted_data.model_dump().items()
+        for field_name, raw_value in items_to_process:
             normalized_value = self._normalize_field_value(field_name, raw_value)
             llm_dict[field_name] = normalized_value if self._is_valid_value(field_name, normalized_value) else None
         return llm_dict

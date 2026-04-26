@@ -1,3 +1,13 @@
+import spacy
+import sys
+
+def block_lg_download(*args, **kwargs):
+    print("en_core_web_lg download intercepted to prevent OOM. Mocking success.")
+    return
+
+import spacy.cli
+spacy.cli.download = block_lg_download
+
 import os
 import shutil
 import pandas as pd
@@ -23,7 +33,8 @@ try:
     spacy.load("en_core_web_sm")
 except:
     import os
-    os.system("python -m spacy download en_core_web_sm")
+    import sys
+    os.system(sys.executable + " -m spacy download en_core_web_sm")
 
 _original_load = spacy.load
 
@@ -51,13 +62,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# print("Waking up AI Agents...")
-# gateway = CognitiveGateway()
-# ml_engine = MLRiskEngine()
-# rag_engine = RAGComplianceEngine()
-# orchestrator = CreditOrchestrator()
-# hitl_router = HITLRouter()
-
 import threading
 
 def load_heavy():
@@ -70,8 +74,14 @@ def load_heavy():
 
         print("Initializing AI agents...", flush=True)
         app.state.gateway = CognitiveGateway()
-        app.state.ml_engine = MLRiskEngine()
-        app.state.rag_engine = RAGComplianceEngine()
+        
+        ml_engine = MLRiskEngine(artifact_dir="models")
+        ml_engine.load_production_model()
+        app.state.ml_engine = ml_engine
+        
+        rag_engine = RAGComplianceEngine(vector_dir="vector_db")
+        rag_engine.load_knowledge_graph(index_name="")
+        app.state.rag_engine = rag_engine
         app.state.orchestrator = CreditOrchestrator()
         app.state.hitl_router = HITLRouter()
 
@@ -84,19 +94,10 @@ def load_heavy():
 
 @app.on_event("startup")
 def startup_event():
-    print("Fast startup (non-blocking)", flush=True)
-    app.state.ready = False
-
-    def background():
-        try:
-            load_heavy()
-            app.state.ready = True
-            print("READY", flush=True)
-        except Exception as e:
-            print(f"FAILED: {e}", flush=True)
-
-    import threading
-    threading.Thread(target=background, daemon=True).start()
+    print("Starting full initialization...", flush=True)
+    load_heavy()
+    app.state.ready = True
+    print("READY", flush=True)
 
 os.makedirs("customer_data/raw_uploads", exist_ok=True)
 os.makedirs("customer_data/clean_tabular", exist_ok=True)
