@@ -45,7 +45,7 @@ import {
 import heroImage from './assets/hero.png';
 import './index.css';
 
-const API_URL = `${import.meta.env.VITE_API_URL}/evaluate-loan`;
+const API_URL = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/evaluate-loan`;
 
 const STATUS_META = {
   APPROVED: {
