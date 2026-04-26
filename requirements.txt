@@ -24,7 +24,7 @@ google-ai-generativelanguage==0.6.4
 # Presidio
 presidio_analyzer==2.2.359
 presidio_anonymizer==2.2.359
-langchain-groq==0.1.5
+langchain-google-genai
 shap==0.44.1
 python-multipart==0.0.9
 pydantic>=2.7.4

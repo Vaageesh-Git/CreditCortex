@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 from presidio_analyzer import AnalyzerEngine
 from presidio_anonymizer import AnonymizerEngine
 from pydantic import BaseModel, Field
@@ -153,7 +153,7 @@ class CognitiveGateway:
         self.structured_llm = None
 
         try:
-            self.llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
+            self.llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite-preview", temperature=0)
             self.structured_llm = self.llm.with_structured_output(ApplicantFinancials)
         except Exception as exc:
             print(f"WARNING: LLM fallback disabled in Phase 1 gateway: {exc}")

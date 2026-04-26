@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -9,9 +9,9 @@ load_dotenv()
 class CreditOrchestrator:
     def __init__(self):
         print("Initializing the AI Chief Credit Officer (Powered by Gemini)...")
-        self.llm = ChatGroq(
+        self.llm = ChatGoogleGenerativeAI(
             temperature=0,
-            model_name="llama-3.3-70b-versatile", 
+            model="gemini-3.1-flash-lite-preview", 
             max_tokens=1500
         )
 
