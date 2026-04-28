@@ -33,7 +33,7 @@
 
 <br/>
 
-[🚀 Live Demo](https://creditcortex.vercel.app/) · [📄 System Design Doc](https://docs.google.com/document/d/1KdhOg1Ku34s_0F3aBT-LQnodC4HdqZk4/edit?usp=sharing&ouid=116452143832700883616&rtpof=true&sd=true)
+[🚀 Live Demo](https://credit-cortex.vercel.app/) · [📄 System Design Doc](https://docs.google.com/document/d/1KdhOg1Ku34s_0F3aBT-LQnodC4HdqZk4/edit?usp=sharing&ouid=116452143832700883616&rtpof=true&sd=true)
 
 </div>
 
