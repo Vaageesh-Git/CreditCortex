@@ -1,6 +1,5 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/STATUS-HACKATHON%20PROJECT-gold?style=for-the-badge&logo=trophy&logoColor=white" />
 <img src="https://img.shields.io/badge/INDIA-FINTECH-orange?style=for-the-badge&logoColor=white" />
 <img src="https://img.shields.io/badge/AI%20POWERED-XAI%20%2B%20RAG-blueviolet?style=for-the-badge&logo=googlegemini&logoColor=white" />
 
@@ -40,11 +39,11 @@
 
 ---
 
-## 🚨 The Problem We're Solving
+## The Problem We're Solving
 
 India has **63 million MSMEs** contributing 30% of GDP — yet **84% are credit-starved** because legacy underwriting systems simply weren't built for them.
 
-| ❌ Legacy System Failure | 💥 Real-World Impact |
+| Legacy System Failure | Real-World Impact |
 |---|---|
 | Rigid OCR templates break on informal documents | Loan applications abandoned mid-process |
 | Western-centric risk models (FICO scores) | Creditworthy Indian businesses wrongly rejected |
@@ -95,8 +94,8 @@ No compliance audit trail        →   RAG-verified against live RBI policy docs
 │  │  Tesseract OCR        │  │  Presidio          │  │  ML + RAG tracks │  │
 │  └──────────────────────┘  └───────────────────┘  └──────────────────┘  │
 │                                                                          │
-│  🧠  Gemini API + LangChain → Strict Structured Output (Pydantic)        │
-│  🔒  Pre-Flight Gate: missing critical field? → Halt + Alert instantly   │
+│    Gemini API + LangChain → Strict Structured Output (Pydantic)        │
+│    Pre-Flight Gate: missing critical field? → Halt + Alert instantly   │
 └────────────────────────────────┬────────────────────────────────────────┘
                                  │
                 ┌────────────────┴────────────────┐
@@ -131,9 +130,9 @@ No compliance audit trail        →   RAG-verified against live RBI policy docs
                                 │
 ┌───────────────────────────────▼─────────────────────────────────────────┐
 │  LAYER 6 · HITL GOVERNANCE ROUTER                                        │
-│  ├── ✅  AUTO APPROVE   — Low risk + fully compliant                     │
-│  ├── ❌  AUTO REJECT    — High risk / hard regulatory violation           │
-│  └── 👤  HUMAN REVIEW   — Edge cases routed to Loan Officer              │
+│  ├──   AUTO APPROVE   — Low risk + fully compliant                     │
+│  ├──   AUTO REJECT    — High risk / hard regulatory violation           │
+│  └──   HUMAN REVIEW   — Edge cases routed to Loan Officer              │
 └───────────────────────────────┬─────────────────────────────────────────┘
                                 │
 ┌───────────────────────────────▼─────────────────────────────────────────┐
@@ -165,7 +164,7 @@ No compliance audit trail        →   RAG-verified against live RBI policy docs
 
 ---
 
-## 🧠 The Intelligence Stack — Deep Dive
+## The Intelligence Stack — Deep Dive
 
 ### Phase 1 · Cognitive Gateway (Semantic Extraction)
 
@@ -344,10 +343,10 @@ cp .env.example .env
 
 ```env
 # .env
-GEMINI_API_KEY=your_gemini_api_key_here
-FAISS_INDEX_PATH=./data/policy_vectors
-XGBOOST_MODEL_PATH=./models/xgboost_msme_v1.json
-PRESIDIO_ENTITIES=IN_AADHAAR,IN_PAN,PHONE_NUMBER,CREDIT_CARD
+GOOGLE_API_KEY=your_gemini_api_key_here
+GOOGLE_CREDENTIALS_JSON=your_json_credentials
+GCS_BUCKET=creditcortex-data
+VITE_API_URL=your_api_url
 ```
 
 ```bash
@@ -416,16 +415,16 @@ creditcortex/
 
 ---
 
-## 🏆 Hackathon Highlights
+## Highlights
 
 > Built to prove that AI in Indian lending can be **powerful, transparent, and regulator-ready** — simultaneously.
 
-🎯 **Solves a real ₹20 trillion problem** — India's structural MSME credit gap  
-🇮🇳 **India-first by design** — Built ground-up for Indian finance norms, not a Western model retrofitted  
-⚖️ **RBI-compliant by architecture** — Every decision is explainable and fully auditable  
-🔄 **End-to-end pipeline** — Raw PDF in → Signed Credit Memo out, in one coherent system  
-🧑‍💼 **Truly human-centred** — AI augments loan officers; human judgment retained for all edge cases  
-☁️ **Production-grade deployment** — GCP Cloud Run backend + Vercel frontend, not a localhost demo  
+ **Solves a real ₹20 trillion problem** — India's structural MSME credit gap  
+ **India-first by design** — Built ground-up for Indian finance norms, not a Western model retrofitted  
+ **RBI-compliant by architecture** — Every decision is explainable and fully auditable  
+ **End-to-end pipeline** — Raw PDF in → Signed Credit Memo out, in one coherent system  
+ **Truly human-centred** — AI augments loan officers; human judgment retained for all edge cases  
+ **Production-grade deployment** — GCP Cloud Run backend + Vercel frontend, not a localhost demo  
 
 ---
 
