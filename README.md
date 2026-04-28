@@ -62,7 +62,7 @@ Traditional Underwriting              CreditCortex
 Template OCR → 40% failure       →   Gemini + Unstructured → 95%+ accuracy
 Generic risk score               →   India-specific XGBoost (GST, FOIR, Sec.138)
 "Rejected." (no reason given)    →   SHAP-powered explanation for every factor
-3–7 day turnaround               →   Sub-hour automated Credit Appraisal Memo
+3–7 day turnaround               →   Sub-minute automated Credit Appraisal Memo
 Human reviews everything         →   HITL only where it truly matters
 No compliance audit trail        →   RAG-verified against live RBI policy docs
 ```
